@@ -1,0 +1,4 @@
+node_modules
+dist
+# local files, kept out of the repo
+local
