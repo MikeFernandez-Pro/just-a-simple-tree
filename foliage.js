@@ -54,6 +54,7 @@ const AO_NEIGHBOURS = 24
 // a card just inside a neighbour's edge keeps nearly all
 const LEAF_DENSITY = -Math.log(0.1) / 2 // per clump radius travelled
 const AO_BOOST = 1.45 // the tutorial's AO's last factor: open leaves come out brighter
+const UPRIGHT = 0.99 // how near straight up or down a card faces before its frame turns off SIDE, not UP
 // Where each of the tutorial's four leaf colours starts, from core to light
 export const LEAF_STOPS = [0, 0.04545, 0.49773, 0.95455]
 
@@ -109,7 +110,7 @@ export function createFoliage() {
 
   // The card's frame: its facing, and two axes in its plane turned by its spin
   const facing = c.xyz
-  const helper = mix(vec3(1, 0, 0), vec3(0, 1, 0), float(abs(facing.y).lessThan(0.99)))
+  const helper = mix(vec3(SIDE), vec3(UP), float(abs(facing.y).lessThan(UPRIGHT)))
   const across = normalize(cross(helper, facing))
   const along = cross(facing, across)
   const tangent = across.mul(cos(c.w)).add(along.mul(sin(c.w)))
@@ -209,60 +210,47 @@ export function createFoliage() {
     showIfAny()
   }
 
+  // What a tree's clumps need before cards go on them, kept while only the
+  // cards' settings change: the clumps as below, the crown round them, and
+  // each one's nearest neighbours within the AO's reach
+  let known = {}
+
   // Scatter cards evenly over every clump's surface, and work out their AO.
   // A clump not flattened has a flatten of 1, one that hangs knows it, and
   // each knows how far it reaches, its radius stretched upright by it
   function update(grownClumps, params) {
-    const clumps = grownClumps.map(({ flatten = 1, ...clump }) => ({
-      ...clump,
-      flatten,
-      hanging: clump.hangFrom !== undefined,
-      bound: clump.radius * Math.max(flatten, 1),
-    }))
-    const random = mulberry32(params.seed + 104729)
-    const box = new THREE.Box3()
-    const corner = new THREE.Vector3()
-    for (const { position, radius } of clumps) {
-      box.expandByPoint(corner.copy(position).addScalar(radius))
-      box.expandByPoint(corner.copy(position).addScalar(-radius))
+    if (known.grown !== grownClumps) {
+      const clumps = grownClumps.map(({ flatten = 1, ...clump }) => ({
+        ...clump,
+        flatten,
+        hanging: clump.hangFrom !== undefined,
+        bound: clump.radius * Math.max(flatten, 1),
+      }))
+      known = { grown: grownClumps, clumps }
+      const box = new THREE.Box3()
+      const corner = new THREE.Vector3()
+      for (const { position, radius } of clumps) {
+        box.expandByPoint(corner.copy(position).addScalar(radius))
+        box.expandByPoint(corner.copy(position).addScalar(-radius))
+      }
+      box.getCenter(u.crownCenter.value)
+      box.getSize(u.crownSize.value).multiplyScalar(0.5).max(new THREE.Vector3(1e-3, 1e-3, 1e-3))
+      clumpView.update(clumps)
     }
-    box.getCenter(u.crownCenter.value)
-    box.getSize(u.crownSize.value).multiplyScalar(0.5).max(new THREE.Vector3(1e-3, 1e-3, 1e-3))
+    const reach = params.aoDistance
+    if (known.reach !== reach) {
+      known.reach = reach
+      known.near = nearestClumps(known.clumps, reach)
+    }
+    const { clumps, near } = known
+    const random = mulberry32(params.seed + 104729)
+    // The cards' tilts draw from their own random, so the rest of the
+    // scatter doesn't depend on how many draws a tilt takes
+    const tiltRandom = mulberry32(params.seed + 15485863)
 
     // Cards per clump scale with its area, so cardsPerClump is the count
     // on a clump of average size
     const meanArea = clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(clumps.length, 1)
-
-    // Only clumps within reach can occlude a card, and only the nearest of
-    // those are looked at: by the gap between their surfaces. Each pair is
-    // measured once, for both. Each clump keeps its nearest in order as
-    // they're offered, which is by index, a tie going to the one offered first
-    const reach = params.aoDistance
-    const near = clumps.map(() => [])
-    const nearGaps = clumps.map(() => [])
-    function offer(i, o, gap) {
-      if (gap >= clumps[i].radius * 0.05 + reach) return
-      const nearest = near[i]
-      const gaps = nearGaps[i]
-      const full = nearest.length === AO_NEIGHBOURS
-      if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
-      let k = full ? AO_NEIGHBOURS - 1 : nearest.length
-      for (; k > 0 && gaps[k - 1] > gap; k--) {
-        gaps[k] = gaps[k - 1]
-        nearest[k] = nearest[k - 1]
-      }
-      gaps[k] = gap
-      nearest[k] = o
-    }
-    for (let i = 0; i < clumps.length; i++) {
-      const c = clumps[i]
-      for (let j = i + 1; j < clumps.length; j++) {
-        const o = clumps[j]
-        const distance = o.position.distanceTo(c.position)
-        offer(i, o, distance - c.radius - o.radius)
-        offer(j, c, distance - o.radius - c.radius)
-      }
-    }
 
     const A = cardA.array
     const B = cardB.array
@@ -299,7 +287,7 @@ export function createFoliage() {
         normal.set(dir.x, dir.y / flatten, dir.z).normalize()
 
         // The card lies on the clump, leaning a little off it
-        lean.randomDirection().multiplyScalar(TILT * random()).add(normal).normalize()
+        randomDirection(lean, tiltRandom).multiplyScalar(TILT * random()).add(normal).normalize()
 
         // AO: how much light gets in along rays round the normal, within
         // reach. A clump wholly behind the card or out of reach stops none
@@ -329,7 +317,6 @@ export function createFoliage() {
     if (n > 0) for (const attribute of cardAttributes) uploadFirst(attribute, n)
     mesh.count = n
     showIfAny()
-    clumpView.update(clumps)
   }
 
   // One of the painted textures, each painted once when first picked
@@ -447,7 +434,7 @@ export function createFoliage() {
 // The leaf clumps the cards are scattered over, drawn as they are: each a
 // sphere, or a pad when its species flattens it, or a tress when it
 // stretches it, swaying with the wood
-const MAX_CLUMPS = 8192
+const MAX_CLUMPS = 8192 // most clumps it draws
 function createClumpView() {
   const sphere = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 4), 4) // centre, radius
   const shape = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 2), 2) // flatten, lift
@@ -486,7 +473,7 @@ function uploadFirst(attribute, count) {
 // The two axes in a card's plane before its spin, from its facing, into
 // across and along: the shader's frame, worked out the same way
 function cardAxes(facing, across, along) {
-  across.crossVectors(Math.abs(facing.y) < 0.99 ? UP : SIDE, facing).normalize()
+  across.crossVectors(Math.abs(facing.y) < UPRIGHT ? UP : SIDE, facing).normalize()
   along.crossVectors(facing, across)
 }
 
@@ -508,6 +495,48 @@ function spin(facing, random, hanging) {
   if (!hanging) return random * Math.PI * 2
   cardAxes(facing, across, along)
   return Math.atan2(-along.y, -across.y) + (random - 0.5) * 2 * HANG_JITTER
+}
+
+// Each clump's nearest neighbours that could occlude its cards: within reach,
+// by the gap between their surfaces, at most AO_NEIGHBOURS. Each pair is
+// measured once, for both. Each clump keeps its nearest in order as they're
+// offered, which is by index, a tie going to the one offered first
+function nearestClumps(clumps, reach) {
+  const near = clumps.map(() => [])
+  const nearGaps = clumps.map(() => [])
+  function offer(i, o, gap) {
+    if (gap >= clumps[i].radius * 0.05 + reach) return
+    const nearest = near[i]
+    const gaps = nearGaps[i]
+    const full = nearest.length === AO_NEIGHBOURS
+    if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
+    let k = full ? AO_NEIGHBOURS - 1 : nearest.length
+    for (; k > 0 && gaps[k - 1] > gap; k--) {
+      gaps[k] = gaps[k - 1]
+      nearest[k] = nearest[k - 1]
+    }
+    gaps[k] = gap
+    nearest[k] = o
+  }
+  for (let i = 0; i < clumps.length; i++) {
+    const c = clumps[i]
+    for (let j = i + 1; j < clumps.length; j++) {
+      const o = clumps[j]
+      const distance = o.position.distanceTo(c.position)
+      offer(i, o, distance - c.radius - o.radius)
+      offer(j, c, distance - o.radius - c.radius)
+    }
+  }
+  return near
+}
+
+// A direction picked evenly over the sphere, into v, as three's
+// randomDirection picks one but from a seeded random
+function randomDirection(v, random) {
+  const y = random() * 2 - 1
+  const around = random() * Math.PI * 2
+  const ring = Math.sqrt(1 - y * y)
+  return v.set(ring * Math.cos(around), y, ring * Math.sin(around))
 }
 
 // Cosine-weighted directions round +Y, spread evenly

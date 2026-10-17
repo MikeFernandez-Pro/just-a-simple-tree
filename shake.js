@@ -13,7 +13,7 @@ import { wind } from './wind.js'
 const SHAKE = 0.02 // metres at its strongest
 const ROLL = 0.0015 // radians of roll at its strongest
 const GUST = 2 // how much harder it blows at its strongest: 2 is three times
-const GUST_SECONDS = 2.5
+const GUST_SECONDS = 2.5 // how long the gust takes to rise and die away
 
 export function createShake({ camera, falling }) {
   let from = -Infinity

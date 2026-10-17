@@ -31,8 +31,9 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 - **The leaves** are flat cards scattered over leaf clumps: one at each free
   branch tip on the oak, flat pads along the pine's branches, round
   clumps packed up the cypress, and long tresses down the willow's strands,
-  their narrow leaves pointing down. Picking a species puts on its own leaf
-  texture: needle sprigs for the pine. They borrow the clump's normals instead of their own, so a clump
+  their leaves pointing down. Every species wears the same round leaves;
+  the panel's texture can swap them for pointed, oak, pine-needle or willow
+  leaves. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
 - **Ambient occlusion** is worked out per card on the CPU, treating each
   clump as a leafy volume, so the colours depend on the sun and never on the

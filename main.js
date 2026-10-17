@@ -191,9 +191,12 @@ function requestLeaves() {
   leavesWanted = true;
 }
 function rebuildIfWanted() {
-  if (rebuildWanted) rebuild();
-  else if (leavesWanted) scatterLeaves();
+  // Cleared first, so a rebuild that fails isn't tried again every frame
+  const regrow = rebuildWanted;
+  const rescatter = leavesWanted;
   rebuildWanted = leavesWanted = false;
+  if (regrow) rebuild();
+  else if (rescatter) scatterLeaves();
 }
 
 let grown;
@@ -330,12 +333,15 @@ const SHAPE_SLIDERS = {
   sides: { min: 3, max: 24, step: 1 },
   smoothness: { min: 1, max: 8, step: 1 },
 };
-const shapeControls = Object.fromEntries(
-  Object.entries(SHAPE_SLIDERS).map(([key, { min, max, step, name = key }]) => [
-    key,
-    shape.add(params, key, min, max, step).name(name).onChange(requestRebuild),
-  ]),
-);
+const shapeControls = {};
+for (const [key, { min, max, step, name = key }] of Object.entries(
+  SHAPE_SLIDERS,
+)) {
+  shapeControls[key] = shape
+    .add(params, key, min, max, step)
+    .name(name)
+    .onChange(requestRebuild);
+}
 // A slider may belong to more than one species, like the droop or the main
 // limbs
 const ownSliders = new Set(Object.values(SPECIES).flatMap((s) => s.sliders));
@@ -356,9 +362,14 @@ function speciesSetting(key, control) {
   startingSettings[key] = control.getValue();
   return control;
 }
-for (const key of ["size", "mainLimbs", "droop", "crookedness", "trunkThickness"]) {
-  speciesSetting(key, shapeControls[key]);
-}
+const SHAPE_SETTINGS = [
+  "size",
+  "mainLimbs",
+  "droop",
+  "crookedness",
+  "trunkThickness",
+];
+for (const key of SHAPE_SETTINGS) speciesSetting(key, shapeControls[key]);
 const speciesDefault = (key) =>
   SPECIES[params.species].settings[key] ?? startingSettings[key];
 onChangeNow(speciesControl, () => {
@@ -566,10 +577,6 @@ toneFolder
   .onChange((name) => (toneMappingType.value = TONE_MAPPINGS[name]));
 toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 
-// A reset button under each section, and a copy-config button always in view
-// under them all. What a theme sets resets to the theme picked now, not to
-// the one the page opened on, and reset keeps the theme. What a species sets
-// resets to the species picked now, and reset keeps the species too
 // Every control a theme sets, and its value in a theme. The page starts in
 // its first theme
 const themeBindings = [
@@ -582,9 +589,8 @@ const themeBindings = [
 ];
 pickTheme(START_THEME);
 const sections = [treeSection, leafSection, breeze, lawn, fall, light];
-const themed = new Map([
-  [themeControl, () => themeName],
-  [speciesControl, () => params.species],
+// The controls a theme or species sets, and where it puts them now
+const following = new Map([
   ...Object.entries(speciesSettings).map(([key, control]) => [
     control,
     () => speciesDefault(key),
@@ -594,11 +600,21 @@ const themed = new Map([
     () => value(THEMES[themeName]),
   ]),
 ]);
+// A reset button under each section, and a copy-config button always in view
+// under them all. What a theme sets resets to the theme picked now, not to
+// the one the page opened on, and reset keeps the theme. What a species sets
+// resets to the species picked now, and reset keeps the species too
+const themed = new Map([
+  [themeControl, () => themeName],
+  [speciesControl, () => params.species],
+  ...following,
+]);
 sections.forEach((section) => addReset(section, themed));
 addCopyConfig(renderer.inspector, sections);
 // The address keeps every changed value but the debug views, so a link
-// brings back this tree
-addShareLink(sections, debugControls);
+// brings back this tree. What a theme or species sets counts as changed
+// when it's away from where they put it, since the link puts them on first
+addShareLink(sections, debugControls, following);
 // Now the address has landed, a theme picked eases in
 themeSeconds = 0.85;
 

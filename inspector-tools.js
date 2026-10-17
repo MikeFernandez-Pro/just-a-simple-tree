@@ -110,16 +110,20 @@ const plain = (value) => (typeof value === 'number' ? Math.round(value * 1e4) / 
 
 // Keeps every value changed from where it started in the page's address,
 // and sets the ones an address arrives with, leaving out the controls in
-// skip. Call once every control exists
-export function addShareLink(sections, skip = []) {
+// skip. A control in following, set by another one like a theme, counts as
+// changed when it's away from where that puts it now, the value following
+// gives, rather than from where it started. Call once every control exists
+export function addShareLink(sections, skip = [], following = new Map()) {
   const controls = new Map(sections.flatMap((section) => paths(section)).filter(([, editor]) => !skip.includes(editor)))
   const starting = new Map([...controls].map(([path, editor]) => [path, plain(valueOf(editor))]))
+  const unchanged = (path, editor) =>
+    following.has(editor) ? plain(following.get(editor)()) : starting.get(path)
 
   function write() {
     const changed = {}
     for (const [path, editor] of controls) {
       const value = plain(valueOf(editor))
-      if (value !== starting.get(path)) changed[path] = value
+      if (value !== unchanged(path, editor)) changed[path] = value
     }
     const hash = Object.keys(changed).length ? `#${encodeURIComponent(JSON.stringify(changed))}` : ''
     history.replaceState(null, '', location.pathname + location.search + hash)
@@ -133,9 +137,10 @@ export function addShareLink(sections, skip = []) {
   for (const editor of controls.values()) editor.addEventListener('change', later)
 
   // An address's values, when it's opened: a reload, by hand or by the dev
-  // server's hot refresh, starts again from the starting values. A choice
-  // like a theme sets other controls as it lands, so they're all set twice:
-  // any it changed are put back
+  // server's hot refresh, starts again from the starting values. The page
+  // writes a theme and species before what they set, so one pass is enough
+  // for its own links; a second puts back anything a link written in another
+  // order had overwritten
   let wanted = {}
   const reloaded = performance.getEntriesByType('navigation')[0]?.type === 'reload'
   try {
