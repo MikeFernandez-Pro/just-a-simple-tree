@@ -1,6 +1,6 @@
 import { INK, LINE } from './stickers.js'
 
-// How many vertices save .glb would write, the wood's and the leaves', and
+// How many vertices export tree (.glb) would write, the wood's and the leaves', and
 // under a rule both together, on a small white card in the bottom left
 // corner, outlined and shadowed like the bar's buttons so it reads on any
 // background and theme. On a small screen it sits above the bar instead
