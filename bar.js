@@ -18,6 +18,7 @@ export function createBar({ onNewTree, onSave }) {
     .bar button:hover { box-shadow: 7px 7px 0 var(--button-shadow) }
     .bar button:active, .bar button.running { box-shadow: 1px 1px 0 var(--button-shadow); translate: 4px 4px }
     .bar button.running { cursor: default; color: #999 }
+    .bar button.running.again { cursor: pointer; color: ${INK} }
     @media (max-width: 480px), (max-height: 500px) {
       .bar { bottom: 18px; gap: 14px }
       .bar button { gap: 8px; padding: 10px 16px; font-size: 14px; box-shadow: 4px 4px 0 var(--button-shadow) }
@@ -31,8 +32,10 @@ export function createBar({ onNewTree, onSave }) {
 
   // A button that runs something, pressed in and showing busy while it runs,
   // and done for a moment after, if it has a word for that. Its icon goes
-  // before or after its words, which may run over a few lines
-  function action({ label, icon, iconAfter = false, busy, done, doneIcon }, run) {
+  // before or after its words, which may run over a few lines. One that can
+  // go again presses on while it runs: run is called again, and the first
+  // press's run is to carry on until the latest has finished
+  function action({ label, icon, iconAfter = false, busy, done, doneIcon, again = false }, run) {
     const button = document.createElement('button')
     button.type = 'button'
     const iconSpan = document.createElement('span')
@@ -51,8 +54,12 @@ export function createBar({ onNewTree, onSave }) {
       `display:flex;align-items:center;white-space:pre;text-align:left;` +
       `min-width:${Math.max(...lines.map((line) => line.length))}ch;min-height:${label.split('\n').length * 1.2}em`
     let running = false
+    if (again) button.classList.add('again')
     async function trigger() {
-      if (running) return
+      if (running) {
+        if (again) run()
+        return
+      }
       running = true
       button.classList.add('running')
       show(icon, busy)
@@ -74,7 +81,10 @@ export function createBar({ onNewTree, onSave }) {
     return trigger
   }
 
-  const newTree = action({ label: 'generate\nnew tree', icon: '⟳', iconAfter: true, busy: 'growing…' }, onNewTree)
+  const newTree = action(
+    { label: 'generate\nnew tree', icon: '⟳', iconAfter: true, busy: 'growing…', again: true },
+    onNewTree,
+  )
   action({ label: 'save .glb', icon: '↓', busy: 'saving…', done: 'saved', doneIcon: '✓' }, onSave)
   document.body.appendChild(bar)
 

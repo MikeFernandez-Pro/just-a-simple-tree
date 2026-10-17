@@ -16,7 +16,7 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 
 ## What it does
 
-- **The tree** grows from a seed, as one of four species, picked with the
+- **The tree** grows from a seed, as one of five species, picked with the
   buttons down the left side (hover one for its name) or in the panel, all from the same
   crooked, tapered wood with rounded tips and collars where branches meet:
   - **oak**: a short trunk splitting into limbs, each branching again;
@@ -27,18 +27,22 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
     round a spiral, widest a third of the way up;
   - **willow** (weeping willow): a short, stout trunk splitting into limbs that rise and
     spread like a fountain, hung with long thin strands that arch over and
-    fall in curtains towards the ground.
+    fall in curtains towards the ground;
+  - **bush**: no wood at all and no falling leaves: a single ball of leaves
+    on the ground, or, with more clumps, a low, round dome of them heaped
+    up, the big ones in the middle.
 - **Each seed has its own character**: besides placing every branch, it
   makes the tree taller or shorter, broader or slimmer, leaning a little and
   heavier on one side, and varies what makes its species: where the pine's
   crown starts and how it droops, where the cypress is widest and how sharp
-  its tip is, how wide the willow's dome is and how long its curtains.
+  its tip is, how wide the willow's dome is and how long its curtains, how
+  wide the bush spreads.
   **variety**, in the shape folder, sets how far: at 0 every seed grows its
   species' average tree.
 - **The leaves** are flat cards scattered over leaf clumps: one at each free
   branch tip on the oak, flat pads along the pine's branches, round
   clumps packed up the cypress, and long tresses down the willow's strands,
-  their leaves pointing down. Every species wears the same round leaves;
+  their leaves pointing down, and round clumps heaped up into the bush. Every species wears the same round leaves;
   the panel's texture can swap them for pointed, oak, pine-needle or willow
   leaves. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
@@ -59,7 +63,7 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 - **A new tree**: **generate new tree** at the bottom, or space, picks a
   new seed. The old leaves blow away while the wood folds back into the
   ground, then the new tree grows out from the trunk to the tips, its leaves
-  popping in last.
+  popping in last. Picking another species grows it in the same way.
 - **Themes**: the round buttons along the top switch between blossom,
   spring, autumn, frost and night. Each sets the leaves, the wood, the
   grass, the background and the shadows. The new theme sweeps over the screen from the
@@ -72,7 +76,9 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 Every setting lives in three's WebGPU Inspector (the button at the top
 right), one section per part of the scene, each with its own colors and
 debug views: the tree (theme, species, its shape, trunk and mesh with the
-wireframe; the shape shows only the species' own sliders),
+wireframe; the shape shows only the species' own sliders, and the bush,
+which has no wood, hides the wood's sliders, wireframe and colours, and
+drops no leaves, so it hides falling leaves too),
 the leaves (clumps, cards, shading and normals), wind, the grass (its
 size, blades, wind strength, shading and colours), falling leaves, and
 the lights (background, sun, sky, shadows, tone mapping).
@@ -210,12 +216,13 @@ export function celShade(mesh) {
 | `pine.js` | the pine: its whorls and leaf clumps, its icon, sliders and settings |
 | `cypress.js` | the cypress: its spiral of climbing branches and leaf clumps, its icon, sliders and settings |
 | `willow.js` | the willow: its limbs, hanging strands and leaf clumps, its icon, sliders and settings |
+| `bush.js` | the bush: its leaf clumps, its icon, sliders and settings |
 | `foliage.js` | the leaf cards, their shading and the painted textures |
 | `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
-| `regenerate.js` | a new tree: the burst, and the wood and leaves growing |
+| `regenerate.js` | a new tree, from a new seed or species: the burst, and the wood and leaves growing |
 | `glb.js` | the GLB export |
 | `inspector-filter.js` | the filter box for the Inspector |
 | `inspector-tools.js` | the reset, copy link and copy config buttons, and the link itself |

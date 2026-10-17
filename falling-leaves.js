@@ -202,7 +202,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   // Colour: the foliage's mid colour, each leaf its own shade of it, from a
   // little towards the shadow colour to a little towards the light one, and
   // a touch more saturated, so they stand out against the tree
-  const [, shadow, mid, light] = colors.map((color) => swept(color))
+  const [shadow, mid, light] = colors.map((color) => swept(color))
   const shade = hash(instanceIndex.add(313))
   const color = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
   material.outputNode = vec4(toneMapped(color), output.a)

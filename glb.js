@@ -45,7 +45,8 @@ export async function exportGlb({ tree, foliage, barkColors, species, seed }) {
   bark.userData.celRamp = BARK_STOPS.map((at, i) => [at, hex(barkColors[i].value)])
   const wood = new THREE.Mesh(woodGeometry, bark)
   wood.name = 'wood'
-  scene.add(wood)
+  // A bush has none
+  if (woodGeometry.attributes.position.count > 0) scene.add(wood)
 
   // The leaves. A plain viewer shows them in the ramp's mid colour times
   // the vertex colours; those were divided by shadeScale, so it's multiplied
@@ -55,7 +56,7 @@ export async function exportGlb({ tree, foliage, barkColors, species, seed }) {
     const colors = foliage.uniforms.colors.map((uniform) => uniform.value)
     const leafMaterial = new THREE.MeshStandardMaterial({
       name: 'leaves',
-      color: colors[2].clone().multiplyScalar(shadeScale),
+      color: colors[1].clone().multiplyScalar(shadeScale),
       map: cutout(texture.image),
       alphaTest: 0.5,
       side: THREE.DoubleSide,

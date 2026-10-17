@@ -14,6 +14,7 @@ import { oak } from "./oak.js";
 import { pine } from "./pine.js";
 import { cypress } from "./cypress.js";
 import { willow } from "./willow.js";
+import { bush } from "./bush.js";
 import { createFoliage, fallingTexture, LEAF_TEXTURES } from "./foliage.js";
 import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
@@ -110,6 +111,7 @@ const params = {
   cypressBranches: 20,
   willowStrands: 111, // the willow's hanging strands
   hang: 0.91, // how far down towards the ground they hang
+  bushClumps: 1, // the bush's leaf clumps
   spread: 0.9,
   crookedness: 0.5,
   sides: 10,
@@ -178,13 +180,15 @@ function countVertices() {
 
 // Each species grows its wood and leaf clumps its own way, and brings its
 // name, icon, own shape sliders and own settings
-const SPECIES = { oak, pine, cypress, willow };
+const SPECIES = { oak, pine, cypress, willow, bush };
 
 // Sliders send a change on every step of a drag: the tree is rebuilt once
 // per frame at most, with the latest values. A leaf setting that leaves the
-// clumps where they are only scatters the cards again
+// clumps where they are only scatters the cards again. While a new tree is
+// on its way, the old one is held until it has folded away
 let rebuildWanted = false;
 let leavesWanted = false;
+let held = false;
 function requestRebuild() {
   rebuildWanted = true;
 }
@@ -192,6 +196,7 @@ function requestLeaves() {
   leavesWanted = true;
 }
 function rebuildIfWanted() {
+  if (held) return;
   // Cleared first, so a rebuild that fails isn't tried again every frame
   const regrow = rebuildWanted;
   const rescatter = leavesWanted;
@@ -206,8 +211,12 @@ function rebuild() {
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
+  // The sway grows towards the top of the wood, or of the leaves on a bush
+  // that has none
   grown.geometry.computeBoundingBox();
-  wind.height.value = grown.geometry.boundingBox.max.y;
+  wind.height.value = grown.geometry.attributes.position.count
+    ? grown.geometry.boundingBox.max.y
+    : Math.max(...grown.clumps.map((c) => c.position.y + c.radius));
   scatterLeaves();
 }
 
@@ -265,16 +274,23 @@ function pickTheme(name) {
   }
 }
 
-// A new tree from a new seed, with a burst: from the button at the bottom or
-// space. The seed goes through its slider, so the panel shows it, and the
-// tree is rebuilt at once, not left for the next frame
-const { regenerate } = createRegenerate({
-  setSeed: (seed) => {
-    seedControl.setValue(seed);
-    rebuildIfWanted();
+// A new tree, with a burst, from a new seed or a new species. When the old
+// tree has folded away, the new one is rebuilt at once, not left for the
+// next frame
+const { regrow } = createRegenerate({
+  hold: (on) => {
+    held = on;
+    if (!on) rebuildIfWanted();
   },
   falling,
 });
+// A new seed: from the button at the bottom or space, even while a tree
+// grows. It resolves once the latest tree has grown. It goes through its
+// slider, so the panel shows it
+function newTree() {
+  seedControl.setValue(1 + Math.floor(Math.random() * 9999));
+  return regrow();
+}
 
 const treeSection = renderer.inspector.createParameters("Tree");
 trackFolders(treeSection);
@@ -293,7 +309,9 @@ const themeButtons = createThemeButtons({
 themeButtons.show(START_THEME);
 // The species picks the shape rules; only its own sliders show in the shape
 // folder. The buttons down the left pick it here too, so the panel and the
-// address follow them
+// address follow them. Once the page has opened, a species picked grows in
+// as a new tree does
+let speciesRegrows = false;
 const speciesControl = treeSection.add(
   params,
   "species",
@@ -328,6 +346,7 @@ const SHAPE_SLIDERS = {
   cypressBranches: { min: 10, max: 90, step: 1, name: "branch count" },
   willowStrands: { min: 20, max: 300, step: 1, name: "strands" },
   hang: { min: 0.1, max: 1 },
+  bushClumps: { min: 1, max: 20, step: 1, name: "clumps" },
   crookedness: { min: 0, max: 1.5 },
   trunkThickness: { min: 0.1, max: 0.6, name: "trunk thickness" },
   splitHeight: { min: 0.15, max: 0.6, name: "split height" },
@@ -345,13 +364,27 @@ for (const [key, { min, max, step, name = key }] of Object.entries(
     .onChange(requestRebuild);
 }
 // A slider may belong to more than one species, like the droop or the main
-// limbs
+// limbs. A species without wood, the bush, hides everything that only
+// changes the wood too: these sliders, the wireframe and the wood's colours.
+// One that drops no leaves, the bush again, has none falling, not even
+// those a theme's gust knocks off, and hides their section
 const ownSliders = new Set(Object.values(SPECIES).flatMap((s) => s.sliders));
+const woodControls = ["crookedness", "trunkThickness", "sides", "smoothness"].map(
+  (key) => shapeControls[key],
+);
 function showSpecies() {
-  const shown = SPECIES[params.species].sliders;
+  const {
+    sliders,
+    woodless = false,
+    dropsLeaves = true,
+  } = SPECIES[params.species];
   for (const key of ownSliders) {
-    setAvailable(shapeControls[key], shown.includes(key));
+    setAvailable(shapeControls[key], sliders.includes(key));
   }
+  for (const control of woodControls) setAvailable(control, !woodless);
+  if (woodless) wireframeControl.setValue(false);
+  setAvailable(fall, dropsLeaves);
+  falling.mesh.visible = dropsLeaves;
 }
 // The settings a species puts on when it's picked, among those they all
 // share, the way a theme puts on its colours: its own where it gives them,
@@ -367,6 +400,8 @@ function speciesSetting(key, control) {
 const SHAPE_SETTINGS = [
   "size",
   "mainLimbs",
+  "spread",
+  "bushClumps",
   "droop",
   "crookedness",
   "trunkThickness",
@@ -381,9 +416,9 @@ onChangeNow(speciesControl, () => {
     control.setValue(speciesDefault(key));
   }
   requestRebuild();
+  if (speciesRegrows) regrow();
 });
 speciesButtons.show(params.species);
-showSpecies();
 // The debug views, kept out of the page's address, so a reload or a shared
 // link always starts without them
 const debugControls = [];
@@ -392,21 +427,25 @@ function debugView(control) {
   return control;
 }
 
-debugView(shape.add(params, "wireframe")).onChange((v) => {
-  wireframe.visible = v;
-  tree.visible = !v;
-});
-const woodPickers = addRamp(treeSection.addFolder("colors"), barkColors, [
+const wireframeControl = debugView(shape.add(params, "wireframe")).onChange(
+  (v) => {
+    wireframe.visible = v;
+    tree.visible = !v;
+  },
+);
+const woodColors = treeSection.addFolder("colors");
+const woodPickers = addRamp(woodColors, barkColors, [
   "shadow",
   "mid",
   "light",
 ]);
+woodControls.push(wireframeControl, woodColors);
 
 // The buttons at the bottom: a new tree, and the tree as a GLB for a plain
 // MeshStandardMaterial (the README has the snippet that puts the cel look
 // back)
 const bar = createBar({
-  onNewTree: regenerate,
+  onNewTree: newTree,
   onSave: () =>
     exportGlb({
       tree,
@@ -495,7 +534,7 @@ debugView(leafShading.add(params, "showNormals"))
 const leafPickers = addRamp(
   leafSection.addFolder("colors"),
   foliage.uniforms.colors,
-  ["core", "shadow", "mid", "light"],
+  ["shadow", "mid", "light"],
 );
 
 const breeze = renderer.inspector.createParameters("Wind");
@@ -591,6 +630,7 @@ const themeBindings = [
 ];
 pickTheme(START_THEME);
 const sections = [treeSection, leafSection, breeze, lawn, fall, light];
+showSpecies();
 // The controls a theme or species sets, and where it puts them now
 const following = new Map([
   ...Object.entries(speciesSettings).map(([key, control]) => [
@@ -617,8 +657,10 @@ addCopyConfig(renderer.inspector, sections);
 // brings back this tree. What a theme or species sets counts as changed
 // when it's away from where they put it, since the link puts them on first
 addShareLink(sections, debugControls, following);
-// Now the address has landed, a theme picked eases in
+// Now the address has landed, a theme picked eases in, and a species picked
+// grows in
 themeSeconds = 0.85;
+speciesRegrows = true;
 
 // Every section and folder starts closed, and so does the panel: the
 // Inspector opens it as soon as parameters are added. Its button at the top

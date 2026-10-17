@@ -7,14 +7,16 @@
 // toggle, show, hide), so it could move into three.js's Parameters tab as is.
 // A control set unavailable stays hidden whatever the filter does
 
-// Shows or hides a control for good, past the filter: like a slider that
-// only one species of tree has
+// Shows or hides a control or a folder for good, past the filter: like a
+// slider that only one species of tree has
 export function setAvailable(control, available) {
-  control.domElement.dataset.unavailable = available ? '' : 'true'
+  const element = control.paramList?.domElement ?? control.domElement
+  element.dataset.unavailable = available ? '' : 'true'
   if (available) control.show()
   else control.hide()
 }
-const unavailable = (item) => item.data?.[1]?.dataset?.unavailable === 'true'
+const unavailable = (item) =>
+  [item.domElement, item.data?.[1]].some((element) => element?.dataset?.unavailable === 'true')
 
 export function addParameterFilter(inspector) {
   const parameters = inspector.parameters

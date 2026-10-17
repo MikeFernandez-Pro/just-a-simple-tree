@@ -87,7 +87,7 @@ const turn = (v, k, angle) =>
 
 export function createGrass() {
   const uniforms = {
-    radius: uniform(2.69), // the patch's, in metres
+    radius: uniform(3.01), // the patch's, in metres
     height: uniform(0.34), // a blade's, at full height
     width: uniform(0.07), // a blade's, at its root
     wind: uniform(0.3), // how hard the wind blows the grass, the tree's wind times this

@@ -55,8 +55,10 @@ const AO_NEIGHBOURS = 24
 const LEAF_DENSITY = -Math.log(0.1) / 2 // per clump radius travelled
 const AO_BOOST = 1.45 // the tutorial's AO's last factor: open leaves come out brighter
 const UPRIGHT = 0.99 // how near straight up or down a card faces before its frame turns off SIDE, not UP
-// Where each of the tutorial's four leaf colours starts, from core to light
-export const LEAF_STOPS = [0, 0.04545, 0.49773, 0.95455]
+// Where each leaf colour starts, from shadow to light. The tutorial's ramp
+// has a fourth, darkest colour under 0.04545, for leaves facing away from
+// its only light; here the hemisphere fills them, so none got that dark
+export const LEAF_STOPS = [0, 0.49773, 0.95455]
 
 export function createFoliage() {
   // Per card: centre and size; the clump's normal there and the card's AO;
@@ -81,10 +83,9 @@ export function createFoliage() {
     textured: uniform(1), // 0 shows the bare cards
     flatNormals: uniform(0), // 1 lights each card by its own face, as before the transfer
     showNormals: uniform(0), // 1 draws the normals as colours
-    // The tutorial's foliage ramp: four colours with flat bands between short
-    // blends
+    // The tutorial's foliage ramp, its darkest colour left out: three
+    // colours with flat bands between short blends
     colors: [
-      linear(0.02974, 0.15645, 0.10292),
       linear(0.0356, 0.20508, 0.05781),
       linear(0.0865, 0.34191, 0.05613),
       linear(0.3447, 0.59669, 0.13836),
@@ -92,7 +93,7 @@ export function createFoliage() {
   }
   const u = uniforms
   // As drawn: a new theme sweeps in over the old
-  const [core, shadow, mid, light] = u.colors.map((color) => swept(color))
+  const [shadow, mid, light] = u.colors.map((color) => swept(color))
 
   const a = instancedBufferAttribute(cardA)
   const b = instancedBufferAttribute(cardB)
@@ -173,9 +174,9 @@ export function createFoliage() {
   const normal = normalize(mix(b.xyz, facing, u.flatNormals))
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz)
 
-  // Colour: the lit value through the tutorial's four colours, at its band
-  // edges, hard-edged
-  let color = celShade(LEAF_STOPS.map((at, i) => [at, [core, shadow, mid, light][i]]))
+  // Colour: the lit value through the three colours, at its band edges,
+  // hard-edged
+  let color = celShade(LEAF_STOPS.map((at, i) => [at, [shadow, mid, light][i]]))
 
   // The tutorial's gradient: an easing ramp tied to the light, full on the
   // sun's side of the tree and falling to nothing across the far two thirds,
