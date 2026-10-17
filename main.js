@@ -37,12 +37,7 @@ import {
   sunDirection,
 } from "./shading.js";
 import { sway, wind } from "./wind.js";
-import {
-  attribute,
-  instancedBufferAttribute,
-  positionGeometry,
-  vec3,
-} from "three/tsl";
+import { attribute, positionGeometry } from "three/tsl";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -121,10 +116,10 @@ const params = {
   clumpSize: 1, // scales every leaf clump, and its cards with it
   aoDistance: 2.5, // the tutorial's AO node distance
   leavesTexture: "round cluster",
-  emitters: false,
+  showClumps: false,
   wireframe: false,
   leaves: true,
-  brush: true,
+  showTexture: true,
   normals: "transferred",
   showNormals: false,
   sunAngle: 1.07840734641021,
@@ -151,8 +146,9 @@ wireframe.material.positionNode = positionGeometry.add(
 wireframe.visible = false;
 scene.add(wireframe);
 
+// The leaf cards, and the clumps they're scattered over, hidden
 const foliage = createFoliage();
-scene.add(foliage.mesh);
+scene.add(foliage.mesh, foliage.clumps);
 
 // Leaves falling from the crown, in the foliage's colours
 const falling = createFallingLeaves({
@@ -160,42 +156,10 @@ const falling = createFallingLeaves({
   crownCenter: foliage.uniforms.crownCenter,
   crownSize: foliage.uniforms.crownSize,
 });
-foliage.setBrush(params.leavesTexture);
+foliage.setLeafTexture(params.leavesTexture);
 falling.setTexture(fallingTexture(params.leavesTexture));
 scene.add(falling.mesh);
 
-// The leaf clumps the cards are scattered over; hidden, but handy to see.
-// Each is a sphere, or a pad when its species flattens it, or a tress when
-// it stretches it, swaying with the wood
-const MAX_CLUMPS = 8192;
-const clumpData = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_CLUMPS * 4),
-  4,
-); // centre, radius
-clumpData.setUsage(THREE.DynamicDrawUsage);
-const clumpShape = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_CLUMPS * 2),
-  2,
-); // flatten, and how far below where it hangs from it is
-clumpShape.setUsage(THREE.DynamicDrawUsage);
-const clumpNode = instancedBufferAttribute(clumpData);
-const clumpShapeNode = instancedBufferAttribute(clumpShape);
-const clumpMaterial = new THREE.MeshLambertNodeMaterial({ color: "#4f7a3a" });
-clumpMaterial.positionNode = clumpNode.xyz
-  .add(sway(clumpNode.xyz, clumpShapeNode.y))
-  .add(
-    positionGeometry
-      .mul(vec3(1, clumpShapeNode.x, 1))
-      .mul(clumpNode.w),
-  );
-const emitters = new THREE.Mesh(
-  new THREE.IcosahedronGeometry(1, 3),
-  clumpMaterial,
-);
-emitters.frustumCulled = false;
-emitters.visible = false;
-emitters.count = 0;
-scene.add(emitters);
 
 // How many vertices the GLB would hold, the wood's and the leaves', kept up
 // to date as the tree is rebuilt and its cards are cut up
@@ -233,16 +197,6 @@ function rebuild() {
 
   foliage.update(grown.clumps, params);
   foliage.mesh.visible &&= params.leaves;
-
-  emitters.count = Math.min(grown.clumps.length, MAX_CLUMPS);
-  for (let i = 0; i < emitters.count; i++) {
-    const { position, radius, flatten = 1, hangFrom } = grown.clumps[i];
-    clumpData.array.set([position.x, position.y, position.z, radius], i * 4);
-    const lift = hangFrom === undefined ? 0 : Math.max(hangFrom - position.y, 0);
-    clumpShape.array.set([flatten, lift], i * 2);
-  }
-  clumpData.needsUpdate = true;
-  clumpShape.needsUpdate = true;
 
   countVertices();
 }
@@ -518,9 +472,9 @@ const cardsPerClumpControl = clumps
   .add(params, "cardsPerClump", 1, 160, 1)
   .name("cards per clump")
   .onChange(requestRebuild);
-debugView(clumps.add(params, "emitters"))
-  .name("show emitters")
-  .onChange((v) => (emitters.visible = v));
+debugView(clumps.add(params, "showClumps"))
+  .name("show clumps")
+  .onChange((v) => (foliage.clumps.visible = v));
 const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
@@ -529,14 +483,14 @@ const textureControl = cards
   .add(params, "leavesTexture", LEAF_TEXTURES)
   .name("texture")
   .onChange((name) => {
-    foliage.setBrush(name);
+    foliage.setLeafTexture(name);
     falling.setTexture(fallingTexture(name));
   });
-debugView(cards.add(params, "brush"))
-  .name("brush texture")
-  .onChange((v) => (foliage.uniforms.brush.value = v ? 1 : 0));
+debugView(cards.add(params, "showTexture"))
+  .name("show texture")
+  .onChange((v) => (foliage.uniforms.textured.value = v ? 1 : 0));
 const cardSizeControl = cards
-  .add(foliage.uniforms.particleSize, "value", 0.1, 3)
+  .add(foliage.uniforms.cardSize, "value", 0.1, 3)
   .name("size");
 // How many squares each card is cut into, and how far they wrap round their
 // clump's sphere. Segments only show once roundness bends them

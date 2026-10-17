@@ -13,6 +13,12 @@ export const wind = {
   gust: uniform(0), // a gust on top while the camera shakes: 1 blows twice as hard
 }
 
+// How far below where it hangs from a point is: the lift sway takes for it.
+// Nothing for what doesn't hang
+export function liftBelow(hangFrom, y) {
+  return hangFrom === undefined ? 0 : Math.max(hangFrom - y, 0)
+}
+
 // How hard it blows now, the gust included
 export const blowing = wind.strength.mul(wind.gust.add(1))
 

@@ -1,4 +1,5 @@
 import * as THREE from 'three/webgpu'
+import { liftBelow } from './wind.js'
 
 // The wood every species is built from: crooked tubes, tapering as they go,
 // with rounded tips and collars where they grow from another, and what the
@@ -53,7 +54,7 @@ export function createWood(params, random) {
       points.push(points[i - 1].clone().addScaledVector(d, length / segments))
       radii.push(radius * (1 - (1 - taper) * (i / segments)))
     }
-    tube(points, radii, from, length, hangs ? start.y : null, sides)
+    tube(points, radii, from, length, hangs ? start.y : undefined, sides)
     return { points, radii }
   }
 
@@ -84,7 +85,7 @@ export function createWood(params, random) {
         centers.push(center.x, center.y, center.z)
         roots.push(kinks[0].x, kinks[0].y, kinks[0].z)
         births.push(birth)
-        lifts.push(hangFrom === null ? 0 : Math.max(hangFrom - center.y, 0))
+        lifts.push(liftBelow(hangFrom, center.y))
         const angle = (j / sides) * Math.PI * 2
         v.copy(normal).multiplyScalar(Math.cos(angle)).addScaledVector(binormal, Math.sin(angle))
         positions.push(center.x + v.x * radius, center.y + v.y * radius, center.z + v.z * radius)

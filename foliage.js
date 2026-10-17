@@ -32,7 +32,7 @@ import { mulberry32 } from './wood.js'
 import { celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
-import { flutter, sway, wind } from './wind.js'
+import { flutter, liftBelow, sway, wind } from './wind.js'
 
 // Anime foliage after trungduyng's Blender pipeline: leaf cards scattered
 // over each leaf clump, each showing a whole cluster of leaves, lit with the
@@ -75,9 +75,9 @@ export function createFoliage() {
     crownSize: uniform(new THREE.Vector3(1, 1, 1)),
     shadowSide: uniform(0.435), // the multiply factor of the tutorial's gradient
     ao: uniform(0.54), // the multiply factor of the tutorial's AO
-    particleSize: uniform(0.92), // grows the cards without adding any
+    cardSize: uniform(0.92), // grows the cards without adding any
     roundness: uniform(0.58), // how far cards wrap round their clump
-    brush: uniform(1), // 0 shows the bare cards
+    textured: uniform(1), // 0 shows the bare cards
     flatNormals: uniform(0), // 1 lights each card by its own face, as before the transfer
     showNormals: uniform(0), // 1 draws the normals as colours
     // The tutorial's foliage ramp: four colours with flat bands between short
@@ -120,7 +120,7 @@ export function createFoliage() {
   material.positionNode = Fn(() => {
     // Wind: the card rides its branch's sway and rocks round its own centre
     const rock = flutter(center, hash(instanceIndex.add(31)).mul(Math.PI * 2))
-    const flat = center.add(place(rotate(positionGeometry, rock)).mul(a.w.mul(u.particleSize)))
+    const flat = center.add(place(rotate(positionGeometry, rock)).mul(a.w.mul(u.cardSize)))
     // Roundness pulls each vertex onto its clump's sphere, at the card's own
     // distance from the clump's centre: 0 leaves the card flat and tilted, 1
     // wraps it round the clump. The more segments, the closer it follows
@@ -161,16 +161,16 @@ export function createFoliage() {
   // is a 2 x 2 atlas of four clusters, one picked per card
   const variant = floor(hash(instanceIndex.add(7919)).mul(4))
   const cell = vec2(variant.mod(2), floor(variant.div(2)))
-  const brushTexture = texture(leafTexture('pointed cluster'), uv().add(cell).mul(0.5))
-  const opacity = mix(float(1), brushTexture.r, u.brush)
+  const leaves = texture(leafTexture('pointed cluster'), uv().add(cell).mul(0.5))
+  const opacity = mix(float(1), leaves.r, u.textured)
   material.opacityNode = opacity
   material.alphaTest = 0.5
   material.maskShadowNode = opacity.greaterThan(0.5)
   material.shadowSide = THREE.DoubleSide
   material.receivedShadowNode = tintShadow
 
-  // Normal: the clump's, as the tutorial's Data Transfer copies the emitter's,
-  // on both sides of the card
+  // Normal: the clump's, as the tutorial's Data Transfer copies them from
+  // its emitter, on both sides of the card
   const normal = normalize(mix(b.xyz, facing, u.flatNormals))
   material.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz)
 
@@ -305,17 +305,18 @@ export function createFoliage() {
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, spin(lean, random(), hanging)], n * 4)
         D.set([position.x, position.y, position.z, radius], n * 4)
-        cardE.array.set([clumps[c].birth, hanging ? Math.max(hangFrom - p.y, 0) : 0], n * 2)
+        cardE.array.set([clumps[c].birth, liftBelow(hangFrom, p.y)], n * 2)
       }
     })
     for (const attribute of cardAttributes) attribute.needsUpdate = true
     mesh.count = n
     mesh.visible = n > 0
+    clumpView.update(clumps)
   }
 
   // One of the painted textures, each painted once when first picked
-  function setBrush(name) {
-    brushTexture.value = leafTexture(name)
+  function setLeafTexture(name) {
+    leaves.value = leafTexture(name)
   }
 
   // The cards as they stand with no wind, as one plain mesh for export, the
@@ -357,7 +358,7 @@ export function createFoliage() {
       clump.fromArray(D, n * 4)
       normal.fromArray(B, n * 4).lerp(facing, u.flatNormals.value).normalize()
       const spin = C[n * 4 + 3]
-      const size = A[n * 4 + 3] * u.particleSize.value
+      const size = A[n * 4 + 3] * u.cardSize.value
       const helper = Math.abs(facing.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
       across.crossVectors(helper, facing).normalize()
       along.crossVectors(facing, across)
@@ -403,7 +404,7 @@ export function createFoliage() {
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     geometry.setIndex(index)
-    return { geometry, shadeScale, texture: brushTexture.value }
+    return { geometry, shadeScale, texture: leaves.value }
   }
 
   // How many vertices bake gives: every card's own, none shared
@@ -411,7 +412,51 @@ export function createFoliage() {
     return mesh.count * cards[segments].attributes.position.count
   }
 
-  return { mesh, uniforms, update, setBrush, setSegments, bake, bakedVertices }
+  // The clumps themselves, hidden, but handy to see
+  const clumpView = createClumpView()
+
+  return {
+    mesh,
+    clumps: clumpView.mesh,
+    uniforms,
+    update,
+    setLeafTexture,
+    setSegments,
+    bake,
+    bakedVertices,
+  }
+}
+
+// The leaf clumps the cards are scattered over, drawn as they are: each a
+// sphere, or a pad when its species flattens it, or a tress when it
+// stretches it, swaying with the wood
+const MAX_CLUMPS = 8192
+function createClumpView() {
+  const sphere = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 4), 4) // centre, radius
+  const shape = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 2), 2) // flatten, lift
+  sphere.setUsage(THREE.DynamicDrawUsage)
+  shape.setUsage(THREE.DynamicDrawUsage)
+  const s = instancedBufferAttribute(sphere)
+  const f = instancedBufferAttribute(shape)
+  const material = new THREE.MeshLambertNodeMaterial({ color: '#4f7a3a' })
+  material.positionNode = s.xyz.add(sway(s.xyz, f.y)).add(positionGeometry.mul(vec3(1, f.x, 1)).mul(s.w))
+  const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 3), material)
+  mesh.frustumCulled = false
+  mesh.visible = false
+  mesh.count = 0
+
+  function update(clumps) {
+    mesh.count = Math.min(clumps.length, MAX_CLUMPS)
+    for (let i = 0; i < mesh.count; i++) {
+      const { position, radius, flatten = 1, hangFrom } = clumps[i]
+      sphere.array.set([position.x, position.y, position.z, radius], i * 4)
+      shape.array.set([flatten, liftBelow(hangFrom, position.y)], i * 2)
+    }
+    sphere.needsUpdate = true
+    shape.needsUpdate = true
+  }
+
+  return { mesh, update }
 }
 
 // A card's spin round its facing, from a random number: any way round, or
