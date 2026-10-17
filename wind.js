@@ -7,8 +7,8 @@ export const wind = {
   strength: uniform(0.22), // how far the tree top sways, in metres
   speed: uniform(0.83), // how fast gusts travel through the tree
   frequency: uniform(0.05), // how small the gusts are: higher, more of them
-  direction: uniform(1.35840734641021), // where the wind blows towards, round the trunk
-  flutter: uniform(0.18), // how far each card rocks, in radians
+  direction: uniform(-Math.PI), // where the wind blows towards, round the trunk
+  flutter: uniform(0.25), // how far each card rocks, in radians
   height: uniform(5), // the tree's height, so the sway grows towards the top
   gust: uniform(0), // a gust on top while the camera shakes: 1 blows twice as hard
 }

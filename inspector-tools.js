@@ -1,7 +1,8 @@
 // Reset buttons, a shareable link and a copy-config button for the WebGPU
 // Inspector's Parameters tab. Each section remembers the values its controls
 // start with; reset puts them back through the controls themselves, so every
-// onChange runs as if picked by hand. The page's address always holds every
+// onChange runs as if picked by hand. A control can instead be given where
+// it resets to at the moment, like a colour the theme picked. The page's address always holds every
 // value changed from those, so it can be shared; opening it sets them again,
 // reloading it doesn't.
 // Copy config writes every current value as JSON, by section and folder,
@@ -44,19 +45,28 @@ export function closeAll(section) {
 }
 
 // A button at the bottom of a section or folder putting back the values its
-// controls have now
-function resetButton(group, label) {
+// controls have now, or for those in resetTo, the value it gives when
+// pressed. Only the controls that differ are set, so nothing runs for those
+// already there
+function resetButton(group, label, resetTo) {
   const starting = controls(group).map(({ editor }) => [editor, valueOf(editor)])
-  group.add({ [label]: () => starting.forEach(([control, value]) => control.setValue(value)) }, label)
+  const reset = () => {
+    for (const [control, value] of starting) {
+      const target = resetTo.has(control) ? resetTo.get(control)() : value
+      if (valueOf(control) !== target) control.setValue(target)
+    }
+  }
+  group.add({ [label]: reset }, label)
 }
 
 // Resets for a section: one under each of its folders, at any depth, putting
 // back just that folder, and one under the whole section, "reset all" when it
-// has folders, putting back everything in it
-export function addReset(section) {
+// has folders, putting back everything in it. resetTo maps a control to a
+// function giving where it resets to now
+export function addReset(section, resetTo = new Map()) {
   const folders = (group) => (group.folders ?? []).flatMap((folder) => [...folders(folder), folder])
-  for (const folder of folders(section)) resetButton(folder, 'reset')
-  resetButton(section, section.folders?.length ? 'reset all' : 'reset')
+  for (const folder of folders(section)) resetButton(folder, 'reset', resetTo)
+  resetButton(section, section.folders?.length ? 'reset all' : 'reset', resetTo)
 }
 
 // The section's values, its folders nested inside

@@ -27,6 +27,11 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 - **Lights**: a sun with shadows and a sky-and-ground hemisphere light; their
   colours tint the bands. The floor only draws the shadow, so it blends into
   any background colour.
+- **Grass**: a small round patch at the tree's foot, after the grass of the
+  Portfolio2024 island. Every blade is built in the vertex shader, bent,
+  turned at random and widened when seen edge on; the patch's ragged rim
+  shortens the blades into it. It leans with the wind, goes through the
+  tree's cel ramp with the tree's shadow on it, and takes the theme's colours.
 - **Wind** sways the whole tree and rocks each leaf card; **falling leaves**
   drift downwind and settle on the floor, simulated with a compute shader.
 - **A new tree**: **generate new tree** at the bottom, or space, picks a
@@ -35,7 +40,7 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
   popping in last.
 - **Themes**: the round buttons at the top left switch between blossom,
   spring, autumn, frost and night. Each sets the leaves, the wood, the
-  background and the shadows. The new theme sweeps over the screen from the
+  grass, the background and the shadows. The new theme sweeps over the screen from the
   bottom left to the top right behind a ragged Perlin-noise front with a
   bright edge, while the camera shakes a little. Picking again mid-sweep
   sends a new front after the ones still going.
@@ -45,7 +50,8 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 Every setting lives in three's WebGPU Inspector (the button at the top
 right), one section per part of the scene, each with its own colors and
 debug views: the tree (theme, its shape, trunk and mesh with the wireframe),
-the leaves (clumps, cards, shading and normals), wind, falling leaves, and
+the leaves (clumps, cards, shading and normals), wind, the grass (its
+size, blades, wind strength, shading and colours), falling leaves, and
 the lights (background, sun, sky, shadows, tone mapping).
 Each section and folder has its own reset, the filter box finds a setting by
 name, and **copy config** copies every value as JSON.
@@ -174,6 +180,7 @@ export function celShade(mesh) {
 | `oak.js` | the seeded tree generator and its leaf clumps |
 | `foliage.js` | the leaf cards, their shading and the painted textures |
 | `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
+| `grass.js` | the grass patch round the tree's foot |
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
 | `regenerate.js` | a new tree: the burst, and the wood and leaves growing |

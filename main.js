@@ -6,6 +6,7 @@ import { addCopyConfig, addReset, addShareLink, closeAll, trackFolders } from '.
 import { generateOak } from './oak.js'
 import { createFoliage, fallingTexture, LEAF_TEXTURES } from './foliage.js'
 import { createFallingLeaves } from './falling-leaves.js'
+import { createGrass } from './grass.js'
 import { createRegenerate } from './regenerate.js'
 import { createBar } from './bar.js'
 import { exportGlb } from './glb.js'
@@ -96,6 +97,10 @@ const params = {
   sunHeight: 0.49,
 }
 
+// A small round patch of grass at the tree's foot
+const grass = createGrass()
+scene.add(grass.mesh)
+
 const tree = new THREE.Mesh(new THREE.BufferGeometry(), barkMaterial())
 tree.castShadow = true
 tree.receiveShadow = true
@@ -178,6 +183,7 @@ function addRamp(folder, uniforms, names) {
 const startTheme = THEMES[START_THEME]
 startTheme.leaves.forEach((hex, i) => foliage.uniforms.colors[i].value.set(hex))
 startTheme.trunk.forEach((hex, i) => barkColors[i].value.set(hex))
+startTheme.grass.forEach((hex, i) => grass.uniforms.colors[i].value.set(hex))
 shadowColor.value.set(startTheme.shadow.color)
 shadowDarkness.value = startTheme.shadow.darkness
 
@@ -188,8 +194,10 @@ shadowDarkness.value = startTheme.shadow.darkness
 // take the theme at once, so they show it and the address keeps it. While
 // the page opens, a theme from its address lands at once
 let themeSeconds = 0
+let themeName = START_THEME
 function pickTheme(name) {
   const theme = THEMES[name]
+  themeName = name
   themeButtons.show(name)
   if (themeSeconds) {
     sweep(themeSeconds)
@@ -198,6 +206,7 @@ function pickTheme(name) {
   }
   theme.leaves.forEach((hex, i) => leafPickers[i].setValue(hex))
   theme.trunk.forEach((hex, i) => trunkPickers[i].setValue(hex))
+  theme.grass.forEach((hex, i) => grassPickers[i].setValue(hex))
   backgroundPicker.setValue(theme.background)
   shadowColorPicker.setValue(theme.shadow.color)
   darknessControl.setValue(theme.shadow.darkness)
@@ -348,6 +357,19 @@ breeze.add(wind.speed, 'value', 0, 3).name('speed')
 breeze.add(wind.frequency, 'value', 0.05, 1).name('gust size')
 breeze.add(wind.flutter, 'value', 0, 1).name('leaf flutter')
 
+// The patch round the tree's foot: its size and blades, how hard the wind
+// blows it, and its shading
+const lawn = renderer.inspector.createParameters('Grass')
+const blades = lawn.addFolder('blades')
+blades.add(grass.uniforms.radius, 'value', 0.5, 5).name('patch radius')
+blades.add({ count: grass.mesh.geometry.instanceCount }, 'count', 0, grass.CAPACITY, 1).onChange(grass.setCount)
+blades.add(grass.uniforms.height, 'value', 0.05, 1).name('height')
+blades.add(grass.uniforms.width, 'value', 0.01, 0.2).name('width')
+blades.add(grass.uniforms.wind, 'value', 0, 3).name('wind strength')
+const lawnShading = lawn.addFolder('shading')
+lawnShading.add(grass.uniforms.shade, 'value', 0, 1).name('in shadow')
+const grassPickers = addRamp(lawn.addFolder('colors'), grass.uniforms.colors, ['root', 'tip'])
+
 const fall = renderer.inspector.createParameters('Falling leaves')
 fall.add(falling.uniforms.amount, 'value', 0, falling.MAX_LEAVES, 1).name('amount')
 fall.add(falling.uniforms.size, 'value', 0.05, 0.8).name('leaf size')
@@ -381,9 +403,20 @@ toneFolder
 toneFolder.add(exposure, 'value', 0.1, 3).name('exposure')
 
 // A reset button under each section, and a copy-config button always in view
-// under them all
-const sections = [treeSection, leafSection, breeze, fall, light]
-sections.forEach(addReset)
+// under them all. What a theme sets resets to the theme picked now, not to
+// the one the page opened on, and reset keeps the theme
+const sections = [treeSection, leafSection, breeze, lawn, fall, light]
+const theme = () => THEMES[themeName]
+const themed = new Map([
+  [themeControl, () => themeName],
+  ...leafPickers.map((picker, i) => [picker, () => theme().leaves[i]]),
+  ...trunkPickers.map((picker, i) => [picker, () => theme().trunk[i]]),
+  ...grassPickers.map((picker, i) => [picker, () => theme().grass[i]]),
+  [backgroundPicker, () => theme().background],
+  [shadowColorPicker, () => theme().shadow.color],
+  [darknessControl, () => theme().shadow.darkness],
+])
+sections.forEach((section) => addReset(section, themed))
 addCopyConfig(renderer.inspector, sections)
 // The address keeps every changed value but the debug views, so a link
 // brings back this tree
