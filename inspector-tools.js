@@ -1,8 +1,11 @@
-// Reset buttons and a copy-config button for the WebGPU Inspector's
-// Parameters tab. Each section remembers the values its controls start
-// with; reset puts them back through the controls themselves, so every
-// onChange runs as if picked by hand. Copy config writes every current value
-// as JSON, by section and folder, under the names shown in the panel
+// Reset buttons, a shareable link and a copy-config button for the WebGPU
+// Inspector's Parameters tab. Each section remembers the values its controls
+// start with; reset puts them back through the controls themselves, so every
+// onChange runs as if picked by hand. The page's address always holds every
+// value changed from those, so it can be shared; opening it sets them again,
+// reloading it doesn't.
+// Copy config writes every current value as JSON, by section and folder,
+// under the names shown in the panel
 
 // The Inspector keeps a section's own controls but not its folders: make
 // addFolder remember them. Call before the first folder is added
@@ -70,29 +73,101 @@ const svg = (path) =>
   `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
 const COPY_ICON = svg('<rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v6A1.5 1.5 0 0 0 3.5 11H5"/>')
 const DONE_ICON = svg('<path d="M3 8.5l3.2 3.2L13 5"/>')
+const LINK_ICON = svg(
+  '<path d="M6.5 9.5a3 3 0 0 0 4.2 0l2.3-2.3a3 3 0 0 0-4.2-4.2L8 3.8"/><path d="M9.5 6.5a3 3 0 0 0-4.2 0L3 8.8a3 3 0 0 0 4.2 4.2l.8-.8"/>',
+)
 
-// A copy-config button pinned under the Parameters list, outside every
-// section, so it's always in view: the list scrolls above it
-export function addCopyConfig(inspector, sections) {
-  const bar = document.createElement('div')
-  bar.style.cssText = 'padding:6px 8px;border-top:1px solid var(--profiler-border)'
+// Every control of a section and its folders, by its path of names in the
+// panel: "Tree/shape/seed"
+function paths(section, prefix = nameOf(section)) {
+  const own = section.objects.filter((entry) => !isButton(entry)).map(({ editor, subItem }) => [`${prefix}/${labelOf(subItem)}`, editor])
+  return [...own, ...(section.folders ?? []).flatMap((folder) => paths(folder, `${prefix}/${nameOf(folder)}`))]
+}
+
+// Numbers rounded, so the address stays short
+const plain = (value) => (typeof value === 'number' ? Math.round(value * 1e4) / 1e4 : value)
+
+// Keeps every value changed from where it started in the page's address,
+// and sets the ones an address arrives with, leaving out the controls in
+// skip. Call once every control exists
+export function addShareLink(sections, skip = []) {
+  const controls = new Map(sections.flatMap((section) => paths(section)).filter(([, editor]) => !skip.includes(editor)))
+  const starting = new Map([...controls].map(([path, editor]) => [path, plain(valueOf(editor))]))
+
+  function write() {
+    const changed = {}
+    for (const [path, editor] of controls) {
+      const value = plain(valueOf(editor))
+      if (value !== starting.get(path)) changed[path] = value
+    }
+    const hash = Object.keys(changed).length ? `#${encodeURIComponent(JSON.stringify(changed))}` : ''
+    history.replaceState(null, '', location.pathname + location.search + hash)
+  }
+  // Once a slider rests: browsers limit how often the address may change
+  let pending
+  const later = () => {
+    clearTimeout(pending)
+    pending = setTimeout(write, 250)
+  }
+  for (const editor of controls.values()) editor.addEventListener('change', later)
+
+  // An address's values, when it's opened: a reload, by hand or by the dev
+  // server's hot refresh, starts again from the starting values. A choice
+  // like a theme sets other controls once it lands, a tick later, so any it
+  // changed are put back after
+  let wanted = {}
+  const reloaded = performance.getEntriesByType('navigation')[0]?.type === 'reload'
+  try {
+    if (!reloaded) wanted = JSON.parse(decodeURIComponent(location.hash.slice(1)) || '{}')
+  } catch {
+    // not one of ours
+  }
+  const apply = () => {
+    for (const [path, value] of Object.entries(wanted)) {
+      const editor = controls.get(path)
+      if (editor && plain(valueOf(editor)) !== value) editor.setValue(value)
+    }
+  }
+  // Then the address is written again, so whatever it held that isn't kept,
+  // like a debug view, an old name or a value back at its start, goes
+  apply()
+  setTimeout(() => {
+    apply()
+    later()
+  })
+}
+
+// A button that copies some text, and ticks once copied
+function copyButton(icon, label, text) {
   const button = document.createElement('button')
   button.type = 'button'
   button.style.cssText =
-    'width:100%;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;' +
+    'flex:1;display:flex;align-items:center;justify-content:center;gap:6px;padding:6px 8px;' +
     'font:inherit;color:var(--text-primary);background:rgba(255,255,255,0.06);' +
     'border:1px solid rgba(255,255,255,0.12);border-radius:4px;cursor:pointer'
   const show = (icon, label) => (button.innerHTML = `${icon}<span>${label}</span>`)
-  show(COPY_ICON, 'copy config')
+  show(icon, label)
   button.addEventListener('mouseenter', () => (button.style.borderColor = 'var(--color-accent)'))
   button.addEventListener('mouseleave', () => (button.style.borderColor = 'rgba(255,255,255,0.12)'))
   button.addEventListener('click', async () => {
-    const all = Object.fromEntries(sections.map((section) => [nameOf(section), config(section)]))
-    await navigator.clipboard.writeText(JSON.stringify(all, null, 2))
+    await navigator.clipboard.writeText(text())
     show(DONE_ICON, 'copied')
-    setTimeout(() => show(COPY_ICON, 'copy config'), 1200)
+    setTimeout(() => show(icon, label), 1200)
   })
-  bar.appendChild(button)
+  return button
+}
+
+// Copy-link and copy-config buttons pinned under the Parameters list, outside
+// every section, so they're always in view: the list scrolls above them
+export function addCopyConfig(inspector, sections) {
+  const bar = document.createElement('div')
+  bar.style.cssText = 'display:flex;gap:6px;padding:6px 8px;border-top:1px solid var(--profiler-border)'
+  bar.appendChild(copyButton(LINK_ICON, 'copy link', () => location.href))
+  bar.appendChild(
+    copyButton(COPY_ICON, 'copy config', () =>
+      JSON.stringify(Object.fromEntries(sections.map((section) => [nameOf(section), config(section)])), null, 2),
+    ),
+  )
   // Right under the list, wherever it lives: the tab moves its content
   // between its full view and its small floating panel, siblings included
   const list = inspector.parameters.paramList.domElement.parentElement
@@ -101,5 +176,4 @@ export function addCopyConfig(inspector, sections) {
   // header, the filter above it and this bar below it are counted, so the
   // bar never drops out of view
   list.style.maxHeight = 'calc(100vh - 200px)'
-  return button
 }

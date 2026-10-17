@@ -30,7 +30,9 @@ import {
 } from 'three/tsl'
 import { mulberry32 } from './oak.js'
 import { celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
-import { flutter, sway } from './wind.js'
+import { swept } from './transition.js'
+import { burst, grownLeaf } from './regenerate.js'
+import { flutter, sway, wind } from './wind.js'
 
 // Anime foliage after trungduyng's Blender pipeline: leaf cards scattered
 // over each leaf clump, each showing a whole cluster of leaves, lit with the
@@ -53,17 +55,20 @@ const UP = new THREE.Vector3(0, 1, 0)
 
 export function createFoliage() {
   // Per card: centre and size; the clump's normal there and the card's AO;
-  // the card's own facing and its spin round it; its clump's centre and radius
+  // the card's own facing and its spin round it; its clump's centre and radius;
+  // how far along the wood from the ground its clump is
   const cardA = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardB = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardC = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardD = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-  for (const attribute of [cardA, cardB, cardC, cardD]) attribute.setUsage(THREE.DynamicDrawUsage)
+  const cardE = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY), 1)
+  const cardAttributes = [cardA, cardB, cardC, cardD, cardE]
+  for (const attribute of cardAttributes) attribute.setUsage(THREE.DynamicDrawUsage)
 
   const uniforms = {
     crownCenter: uniform(new THREE.Vector3()),
     crownSize: uniform(new THREE.Vector3(1, 1, 1)),
-    shadowSide: uniform(0.745), // the multiply factor of the tutorial's gradient
+    shadowSide: uniform(0.435), // the multiply factor of the tutorial's gradient
     ao: uniform(0.54), // the multiply factor of the tutorial's AO
     particleSize: uniform(0.92), // grows the cards without adding any
     roundness: uniform(0.58), // how far cards wrap round their clump
@@ -80,7 +85,8 @@ export function createFoliage() {
     ],
   }
   const u = uniforms
-  const [core, shadow, mid, light] = u.colors
+  // As drawn: a new theme sweeps in over the old
+  const [core, shadow, mid, light] = u.colors.map((color) => swept(color))
 
   const a = instancedBufferAttribute(cardA)
   const b = instancedBufferAttribute(cardB)
@@ -119,7 +125,22 @@ export function createFoliage() {
     // shadow's bias
     const flatNormal = place(rotate(normalGeometry, rock))
     normalLocal.assign(normalize(mix(flatNormal, normalize(wrapped.sub(clump)), u.roundness)))
-    return mix(flat, wrapped, u.roundness).add(sway(center))
+    // A new tree: the card pops in once its branch has grown there, and a
+    // burst blows it away downwind, tumbling and shrinking as it goes
+    const jitter = hash(instanceIndex.add(5))
+    const size = grownLeaf(instancedBufferAttribute(cardE), jitter)
+    const card = mix(flat, wrapped, u.roundness).sub(center)
+    const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
+    const outwards = normalize(center.sub(u.crownCenter))
+    const blown = outwards
+      .mul(1.5)
+      .add(downwind.mul(jitter.mul(4).add(3)))
+      .mul(burst)
+      .add(vec3(0, -3, 0).mul(burst.mul(burst)))
+    const tumbled = rotate(card, vec3(burst.mul(jitter.mul(12)), burst.mul(7), 0))
+    const left = float(1).sub(burst.remap(0.6, 1).clamp(0, 1))
+    const placed = clump.add(center.sub(clump).mul(size))
+    return placed.add(blown).add(tumbled.mul(size.mul(left))).add(sway(center))
   })()
 
   // How many squares a card is cut into; they only show once roundness
@@ -243,9 +264,10 @@ export function createFoliage() {
         B.set([dir.x, dir.y, dir.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, random() * Math.PI * 2], n * 4)
         D.set([position.x, position.y, position.z, radius], n * 4)
+        cardE.array[n] = clumps[c].birth
       }
     })
-    for (const attribute of [cardA, cardB, cardC, cardD]) attribute.needsUpdate = true
+    for (const attribute of cardAttributes) attribute.needsUpdate = true
     mesh.count = n
     mesh.visible = n > 0
   }
@@ -255,7 +277,95 @@ export function createFoliage() {
     brushTexture.value = leafTexture(name)
   }
 
-  return { mesh, uniforms, update, setBrush, setSegments }
+  // The cards as they stand with no wind, as one plain mesh for export, the
+  // shader's work done here: each card's shape and place, the clump's
+  // normals, its cell of the texture, and the gradient and AO as a grey per
+  // card in the vertex colours. Those can't go over 1 in a glTF, so they're
+  // stored divided by the brightest they can be, which comes back as
+  // shadeScale
+  function bake() {
+    const plane = cards[segments]
+    const corners = plane.attributes.position.count
+    const random = mulberry32(1)
+    const count = mesh.count
+
+    const positions = new Float32Array(count * corners * 3)
+    const normals = new Float32Array(count * corners * 3)
+    const uvs = new Float32Array(count * corners * 2)
+    const colors = new Float32Array(count * corners * 3)
+    const index = []
+    const shadeScale = THREE.MathUtils.lerp(1, 1.45, u.ao.value)
+
+    const [A, B, C, D] = [cardA.array, cardB.array, cardC.array, cardD.array]
+    const center = new THREE.Vector3()
+    const facing = new THREE.Vector3()
+    const across = new THREE.Vector3()
+    const along = new THREE.Vector3()
+    const tangent = new THREE.Vector3()
+    const bitangent = new THREE.Vector3()
+    const clump = new THREE.Vector3()
+    const corner = new THREE.Vector3()
+    const flat = new THREE.Vector3()
+    const wrapped = new THREE.Vector3()
+    const normal = new THREE.Vector3()
+    const side = new THREE.Vector3()
+
+    for (let n = 0; n < count; n++) {
+      center.fromArray(A, n * 4)
+      facing.fromArray(C, n * 4)
+      clump.fromArray(D, n * 4)
+      normal.fromArray(B, n * 4).lerp(facing, u.flatNormals.value).normalize()
+      const spin = C[n * 4 + 3]
+      const size = A[n * 4 + 3] * u.particleSize.value
+      const helper = Math.abs(facing.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+      across.crossVectors(helper, facing).normalize()
+      along.crossVectors(facing, across)
+      tangent.copy(across).multiplyScalar(Math.cos(spin)).addScaledVector(along, Math.sin(spin))
+      bitangent.crossVectors(facing, tangent)
+      const distance = center.distanceTo(clump)
+
+      // The tutorial's gradient and AO, as the shader works them out
+      side.subVectors(center, u.crownCenter.value).divide(u.crownSize.value)
+      const t = THREE.MathUtils.clamp((THREE.MathUtils.clamp(side.dot(sunDirection.value), -1, 1) + 1) * 0.75, 0, 1)
+      const gradient = t * t * (3 - 2 * t)
+      const aoTerm = Math.min(B[n * 4 + 3] ** 2.7 * 7.6, 1) * 1.45
+      const shade =
+        (THREE.MathUtils.lerp(1, gradient, u.shadowSide.value) * THREE.MathUtils.lerp(1, aoTerm, u.ao.value)) / shadeScale
+
+      // One cell of the 2 x 2 atlas per card
+      const variant = Math.floor(random() * 4)
+      const cell = [variant % 2, Math.floor(variant / 2)]
+
+      for (let v = 0; v < corners; v++) {
+        const i = n * corners + v
+        corner.fromBufferAttribute(plane.attributes.position, v)
+        flat
+          .copy(tangent)
+          .multiplyScalar(corner.x)
+          .addScaledVector(bitangent, corner.y)
+          .addScaledVector(facing, corner.z)
+          .multiplyScalar(size)
+          .add(center)
+        wrapped.subVectors(flat, clump).normalize().multiplyScalar(distance).add(clump)
+        flat.lerp(wrapped, u.roundness.value).toArray(positions, i * 3)
+        normal.toArray(normals, i * 3)
+        uvs[i * 2] = (plane.attributes.uv.getX(v) + cell[0]) * 0.5
+        uvs[i * 2 + 1] = (plane.attributes.uv.getY(v) + cell[1]) * 0.5
+        colors.fill(shade, i * 3, i * 3 + 3)
+      }
+      for (let j = 0; j < plane.index.count; j++) index.push(n * corners + plane.index.getX(j))
+    }
+
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
+    geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+    geometry.setIndex(index)
+    return { geometry, shadeScale, texture: brushTexture.value }
+  }
+
+  return { mesh, uniforms, update, setBrush, setSegments, bake }
 }
 
 // Cosine-weighted directions round +Y, spread evenly

@@ -3,10 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#ffe5f4" />
     <title>Just a simple tree</title>
     <style>
-      html, body { margin: 0; height: 100%; overflow: hidden; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #ffe5f4; }
       canvas { display: block; }
+      /* The buttons' hard shadow: a soft charcoal, black on a dark background */
+      :root { --button-shadow: #46434d; }
+      :root.dark { --button-shadow: #000; }
     </style>
   </head>
   <body>

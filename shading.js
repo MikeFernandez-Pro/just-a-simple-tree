@@ -19,6 +19,8 @@ import {
   vec4,
 } from 'three/tsl'
 import { sway } from './wind.js'
+import { grownWood } from './regenerate.js'
+import { swept } from './transition.js'
 
 // Cel shading as in trungduyng's Blender anime tree tutorial ("the tutorial" in
 // these comments): a Diffuse BSDF read back as a colour (Shader to RGB) and
@@ -33,7 +35,7 @@ const ALBEDO = 0.8
 
 export const sunDirection = uniform(new THREE.Vector3(0, 1, 0))
 
-export const sun = new THREE.DirectionalLight('#fff3df', 5.77)
+export const sun = new THREE.DirectionalLight('#fff3df', 5.01)
 sun.castShadow = true
 sun.shadow.mapSize.set(2048, 2048)
 sun.shadow.camera.left = sun.shadow.camera.bottom = -10
@@ -48,10 +50,12 @@ export const hemisphere = new THREE.HemisphereLight('#bfd8ff', '#6b5a45', 1)
 
 // What a shadow does to the sunlight it blocks: darkness 1 takes it all the
 // way to the shadow colour, 0 leaves it untouched. Black at 1 is a plain
-// shadow; a colour tints it
+// shadow; a colour tints it. Both change with the theme, swept in
 export const shadowColor = uniform(new THREE.Color('#2e3b5c'))
 export const shadowDarkness = uniform(0.75)
-export const tintShadow = Fn(([shadow]) => mix(mix(vec3(1), shadowColor, shadowDarkness), vec3(1), shadow))
+const shownShadowColor = swept(shadowColor)
+const shownDarkness = swept(shadowDarkness)
+export const tintShadow = Fn(([shadow]) => mix(mix(vec3(1), shownShadowColor, shownDarkness), vec3(1), shadow))
 
 // A Blender colour ramp with constant interpolation, from [position, colour]
 // stops in order: each colour holds until the next stop, no blending, so the
@@ -124,13 +128,19 @@ export function celMaterial(stops) {
 export const barkColors = [linear(0.031, 0.027, 0.024), linear(0.074, 0.061, 0.042), linear(0.148, 0.117, 0.068)]
 
 export function barkMaterial() {
+  const [shadow, mid, light] = barkColors.map((color) => swept(color))
   const material = celMaterial([
-    [0, barkColors[0]],
-    [0.497, barkColors[1]],
-    [1, barkColors[2]],
+    [0, shadow],
+    [0.497, mid],
+    [1, light],
   ])
-  // The wood sways with the wind, more towards the top
-  material.positionNode = positionGeometry.add(sway(positionGeometry))
+  // The wood grows from the ground, and sways with the wind, more towards
+  // the top
+  const grown = grownWood()
+  material.positionNode = grown.add(sway(grown))
+  // The shadow map draws the wood's own faces, not its back ones (the
+  // renderer's default), so its shadow sits where the wood is
+  material.shadowSide = THREE.FrontSide
   return material
 }
 
@@ -138,7 +148,7 @@ export function barkMaterial() {
 // darkness, so it always melts into the background
 export function groundMaterial() {
   const material = new THREE.ShadowNodeMaterial()
-  material.colorNode = shadowColor
-  material.opacityNode = shadowDarkness
+  material.colorNode = shownShadowColor
+  material.opacityNode = shownDarkness
   return material
 }

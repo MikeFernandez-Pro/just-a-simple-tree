@@ -13,11 +13,11 @@ import {
   min,
   mix,
   mx_noise_vec3,
-  normalGeometry,
-  normalLocal,
   output,
   positionGeometry,
   rotate,
+  saturation,
+  select,
   sin,
   texture,
   time,
@@ -27,19 +27,20 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { celShade, tintShadow, toneMapped } from './shading.js'
-import { wind } from './wind.js'
+import { toneMapped } from './shading.js'
+import { swept } from './transition.js'
+import { blowing, wind } from './wind.js'
 
 // Falling leaves, after the tutorial's Blender particles (leaves spawned inside
-// the tree, random size and turn, pushed by wind and turbulence, with the
-// foliage's shader) and Bruno Simon's TSL petals (storage buffers updated by a
+// the tree, random size and turn, pushed by wind and turbulence, in the
+// foliage's colours) and Bruno Simon's TSL petals (storage buffers updated by a
 // compute shader each frame, a life progress per leaf, scaled in and out,
 // tumbling by their own position). Each leaf falls from inside the crown,
 // drifts downwind, lands on the floor, keeps sliding downwind as it settles
 // flat, then shrinks away and starts again.
 
 const MAX_LEAVES = 4000
-const ALBEDO = 0.8 // the tutorial's Diffuse BSDF's
+const LOOSE = 600 // leaves a shake knocks off the tree at once, on top of the amount
 const FLOOR = 0.01 // the height a leaf lies at
 const LANDING = 0.9 // metres above the floor over which a leaf levels out
 const ROCK = 1.2 // how far a falling leaf rocks either way, in radians
@@ -47,6 +48,7 @@ const AIR_DRIFT = 2 // downwind speed in the air, per unit of wind strength
 const FLOOR_CREEP = 0.15 // downwind speed once settled, per unit of wind strength
 const SETTLE_TIME = 1.5 // seconds a landed leaf takes to slow to its creep
 const LIE_FLAT = vec3(-Math.PI / 2, 0, 0) // turns the card face up
+const SATURATION = 1.25 // how much more vivid than the foliage they fall from
 
 // 0 high up, rising smoothly to 1 at the floor
 const levelling = (height) => float(1).sub(height.sub(FLOOR).div(LANDING).clamp(0, 1)).smoothstep(0, 1)
@@ -54,10 +56,18 @@ const levelling = (height) => float(1).sub(height.sub(FLOOR).div(LANDING).clamp(
 export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   const uniforms = {
     lifetime: uniform(14), // seconds from leaving the tree to vanishing
-    fallSpeed: uniform(0.6), // metres per second, before the wind
-    size: uniform(0.33), // a leaf's width, in metres
+    fallSpeed: uniform(0.42), // metres per second, before the wind
+    size: uniform(0.17), // a leaf's width, in metres
+    amount: uniform(277), // how many fall at once
+    spawning: uniform(1), // 0 while a new tree grows: no leaf leaves it
   }
   const u = uniforms
+
+  // Whether a leaf may leave the tree now: the first amount of them, while
+  // no new tree is growing. Every leaf is drawn, the others hidden, so
+  // changing the amount never shows leaves mid-air: they join or stop as
+  // their lives end
+  const free = () => u.spawning.greaterThan(0.5).and(instanceIndex.toFloat().lessThan(u.amount))
 
   // Per leaf: where it is and how far through its life, and how settled it
   // is on the floor (0 in the air, 1 lying flat)
@@ -74,10 +84,12 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     return crownCenter.add(direction.mul(crownSize).mul(depth))
   }
 
-  // Start every leaf somewhere in the crown, at a random point of its life
+  // Start every free leaf somewhere in the crown, at a random point of its
+  // life; the others wait
   const init = Fn(() => {
+    const progress = hash(instanceIndex.mul(3))
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7)))
-    progresses.element(instanceIndex).assign(hash(instanceIndex.mul(3)))
+    progresses.element(instanceIndex).assign(select(free(), progress, progress.negate()))
     settled.element(instanceIndex).assign(0)
   })().compute(MAX_LEAVES)
 
@@ -88,12 +100,29 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     const dt = deltaTime.min(0.05)
     const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
 
-    // Life: when it's over, start again from a new point in the crown
-    progress.addAssign(dt.div(u.lifetime))
-    If(progress.greaterThan(1), () => {
-      progress.assign(progress.fract())
+    // Life: when it's over, start again from a new point in the crown. A leaf
+    // that isn't free when its life is over waits instead, hidden, its
+    // progress below 0; once free again the waiting ones leave one by one
+    // over a lifetime, so the fall builds up again from the crown
+    const leave = () => {
       position.assign(spawn(instanceIndex.mul(7).add(floor(time.mul(60)))))
       flat.assign(0)
+    }
+    If(progress.lessThan(0), () => {
+      If(free(), () => {
+        progress.addAssign(dt.div(u.lifetime))
+      })
+      If(progress.greaterThanEqual(0), leave)
+    }).Else(() => {
+      progress.addAssign(dt.div(u.lifetime))
+      If(progress.greaterThan(1), () => {
+        If(free(), () => {
+          progress.assign(progress.fract())
+          leave()
+        }).Else(() => {
+          progress.assign(hash(instanceIndex.add(floor(time.mul(60)))).negate())
+        })
+      })
     })
 
     If(position.y.greaterThan(FLOOR), () => {
@@ -102,7 +131,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
       const level = levelling(position.y)
       const turbulence = mx_noise_vec3(position.mul(wind.frequency.mul(4)).add(time.mul(wind.speed))).mul(0.8)
       const fall = u.fallSpeed.mul(float(1).sub(level.mul(0.5)))
-      const drift = downwind.mul(wind.strength.mul(AIR_DRIFT)).add(turbulence).add(vec3(0, fall.negate(), 0))
+      const drift = downwind.mul(blowing.mul(AIR_DRIFT)).add(turbulence).add(vec3(0, fall.negate(), 0))
       position.addAssign(drift.mul(dt))
       position.y.assign(position.y.max(FLOOR))
     }).Else(() => {
@@ -110,15 +139,35 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
       // gentle creep downwind
       flat.assign(flat.add(dt.div(SETTLE_TIME)).min(1))
       const glide = float(1).sub(flat).pow(2)
-      const slide = downwind.mul(wind.strength.mul(mix(float(FLOOR_CREEP), float(AIR_DRIFT), glide)))
+      const slide = downwind.mul(blowing.mul(mix(float(FLOOR_CREEP), float(AIR_DRIFT), glide)))
       position.addAssign(slide.mul(dt))
     })
   })().compute(MAX_LEAVES)
 
-  const material = new THREE.MeshLambertNodeMaterial({
-    color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO),
-    side: THREE.DoubleSide,
-  })
+  // A shake knocks leaves off the tree all at once: the ones waiting just past
+  // the amount leave the crown together, a little apart in their lives so
+  // they don't vanish together, fall once and wait again. None while a new
+  // tree grows
+  const loose = Fn(() => {
+    const index = instanceIndex.toFloat()
+    const progress = progresses.element(instanceIndex)
+    If(
+      u.spawning
+        .greaterThan(0.5)
+        .and(index.greaterThanEqual(u.amount))
+        .and(index.lessThan(u.amount.add(LOOSE)))
+        .and(progress.lessThan(0)),
+      () => {
+        progress.assign(hash(instanceIndex.add(floor(time.mul(60))).add(101)).mul(0.1))
+        positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(floor(time.mul(60)))))
+        settled.element(instanceIndex).assign(0)
+      },
+    )
+  })().compute(MAX_LEAVES)
+
+  // Unlit: each leaf is one flat colour, whatever its turn and whatever
+  // shadow it falls through
+  const material = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide })
 
   material.positionNode = Fn(() => {
     const position = positions.element(instanceIndex)
@@ -138,7 +187,6 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     const heading = vec3(0, position.y.mul(1.5).add(seed.mul(Math.PI * 2)), 0)
     const place = (v) => rotate(rotate(rotate(v, LIE_FLAT), rock), heading)
 
-    normalLocal.assign(place(normalGeometry))
     return place(positionGeometry.mul(scale)).add(position).add(vec3(0, 0.005, 0))
   })()
 
@@ -150,40 +198,42 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   material.alphaTest = 0.5
   material.maskShadowNode = leafTexture.r.greaterThan(0.5)
   material.shadowSide = THREE.DoubleSide
-  material.receivedShadowNode = tintShadow
 
-  // Colour: lit by the sun on its own face, through the foliage's colours
-  const [core, shadow, mid, light] = colors
-  material.outputNode = vec4(
-    toneMapped(
-      celShade([
-        [0, core],
-        [0.04545, shadow],
-        [0.49773, mid],
-        [0.95455, light],
-      ]),
-    ),
-    output.a,
-  )
+  // Colour: the foliage's mid colour, each leaf its own shade of it, from a
+  // little towards the shadow colour to a little towards the light one, and
+  // a touch more saturated, so they stand out against the tree
+  const [, shadow, mid, light] = colors.map((color) => swept(color))
+  const shade = hash(instanceIndex.add(313))
+  const color = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
+  material.outputNode = vec4(toneMapped(color), output.a)
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)
   mesh.frustumCulled = false
   mesh.castShadow = true
-  mesh.receiveShadow = true
-  mesh.count = 152
+  mesh.count = MAX_LEAVES
 
   let started = false
+  let loosening = false
   function update(renderer) {
     if (!started) {
       renderer.compute(init)
       started = true
     }
+    if (loosening) {
+      renderer.compute(loose)
+      loosening = false
+    }
     renderer.compute(step)
+  }
+
+  // Knocks a handful of leaves off the tree on the next frame
+  function shake() {
+    loosening = true
   }
 
   function setTexture(texture) {
     leafTexture.value = texture
   }
 
-  return { mesh, uniforms, update, setTexture, MAX_LEAVES }
+  return { mesh, uniforms, update, setTexture, shake, MAX_LEAVES }
 }
