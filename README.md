@@ -1,6 +1,6 @@
 # Just a simple tree
 
-![The default oak in the blossom theme, swaying in the wind as its leaves fall](docs/tree.gif)
+<img src="docs/tree.gif" width="100%" alt="An oak in blossom, a willow in autumn, a pine in frost, a bush at night and a cypress in spring, each folding away as the next grows in">
 
 A procedural anime-style tree for three.js, exported as a `.glb`. Five
 species: oak, pine, cypress, weeping willow and bush. Everything is
