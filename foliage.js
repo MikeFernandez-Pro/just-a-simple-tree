@@ -28,7 +28,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { mulberry32 } from './oak.js'
+import { mulberry32 } from './wood.js'
 import { celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
@@ -45,6 +45,10 @@ const CAPACITY = 1 << 16 // most cards we'll ever draw
 const CARD_RATIO = 1.8 // card width / clump radius
 const TILT = 0.6 // how far a card leans off its clump's surface, at most
 const AO_RAYS = 12 // rays per card, cosine-weighted round its normal
+// The most clumps a card's AO looks at, the nearest to its own: dense
+// trees like the pine have hundreds within reach, and the farther ones
+// barely shade it
+const AO_NEIGHBOURS = 24
 // Clumps are leafy volumes, not solid balls: light fades with the length of
 // the ray inside one, so a ray straight through a clump keeps 10% of it and
 // a card just inside a neighbour's edge keeps nearly all
@@ -219,10 +223,15 @@ export function createFoliage() {
     // on a clump of average size
     const meanArea = clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(clumps.length, 1)
 
-    // Only clumps within reach can occlude a card
+    // Only clumps within reach can occlude a card, and only the nearest of
+    // those are looked at: by the gap between their surfaces
     const reach = params.aoDistance
+    const gap = (c, o) => o.position.distanceTo(c.position) - c.radius - o.radius
     const near = clumps.map((c, i) =>
-      clumps.filter((o, j) => j !== i && o.position.distanceTo(c.position) < c.radius * 1.05 + reach + o.radius),
+      clumps
+        .filter((o, j) => j !== i && gap(c, o) < c.radius * 0.05 + reach)
+        .sort((a, b) => gap(c, a) - gap(c, b))
+        .slice(0, AO_NEIGHBOURS),
     )
 
     const A = cardA.array
@@ -232,11 +241,15 @@ export function createFoliage() {
     const turn = new THREE.Quaternion()
     const toNormal = new THREE.Quaternion()
     const dir = new THREE.Vector3()
+    const normal = new THREE.Vector3()
     const lean = new THREE.Vector3()
     const ray = new THREE.Vector3()
     const p = new THREE.Vector3()
     let n = 0
-    clumps.forEach(({ position, radius }, c) => {
+    // A clump may be flattened, squashed upright into a pad: its cards lie
+    // on the squashed surface and take its normals, so a pad lights like one
+    // on its top and darkens under it
+    clumps.forEach(({ position, radius, flatten = 1 }, c) => {
       const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
       // Turn each clump's pattern randomly, so no two clumps line up
       turn.setFromEuler(new THREE.Euler(random() * 6.28, random() * 6.28, random() * 6.28))
@@ -245,23 +258,27 @@ export function createFoliage() {
         const ring = Math.sqrt(1 - y * y)
         const angle = i * GOLDEN_ANGLE
         dir.set(Math.cos(angle) * ring, y, Math.sin(angle) * ring).applyQuaternion(turn)
-        p.copy(position).addScaledVector(dir, radius * (0.9 + random() * 0.15))
+        p.copy(dir)
+          .setY(dir.y * flatten)
+          .multiplyScalar(radius * (0.9 + random() * 0.15))
+          .add(position)
+        normal.set(dir.x, dir.y / flatten, dir.z).normalize()
 
         // The card lies on the clump, leaning a little off it
-        lean.randomDirection().multiplyScalar(TILT * random()).add(dir).normalize()
+        lean.randomDirection().multiplyScalar(TILT * random()).add(normal).normalize()
 
         // AO: how much light gets in along rays round the normal, within reach
-        toNormal.setFromUnitVectors(UP, dir)
+        toNormal.setFromUnitVectors(UP, normal)
         let open = 0
         for (const hemisphere of AO_DIRECTIONS) {
           ray.copy(hemisphere).applyQuaternion(toNormal)
           let through = 0
-          for (const o of near[c]) through += chord(p, ray, o.position, o.radius, reach) / o.radius
+          for (const o of near[c]) through += chord(p, ray, o.position, o.radius, reach, o.flatten) / o.radius
           open += Math.exp(-LEAF_DENSITY * through)
         }
 
         A.set([p.x, p.y, p.z, CARD_RATIO * radius * (0.8 + random() * 0.4)], n * 4)
-        B.set([dir.x, dir.y, dir.z, open / AO_RAYS], n * 4)
+        B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, random() * Math.PI * 2], n * 4)
         D.set([position.x, position.y, position.z, radius], n * 4)
         cardE.array[n] = clumps[c].birth
@@ -375,16 +392,21 @@ const AO_DIRECTIONS = Array.from({ length: AO_RAYS }, (_, i) => {
   return new THREE.Vector3(r * Math.cos(angle), Math.sqrt(1 - r * r), r * Math.sin(angle))
 })
 
-// How far a ray from origin along dir, out to reach, runs inside the sphere
-function chord(origin, dir, center, radius, reach) {
+// How far a ray from origin along dir, out to reach, runs inside the
+// clump: a sphere, squashed upright by flatten. Unsquashing the ray's y turns
+// it into a sphere test, along the ray's own length
+function chord(origin, dir, center, radius, reach, flatten = 1) {
   const x = center.x - origin.x
-  const y = center.y - origin.y
+  const y = (center.y - origin.y) / flatten
   const z = center.z - origin.z
-  const along = x * dir.x + y * dir.y + z * dir.z
-  const miss2 = x * x + y * y + z * z - along * along
-  if (miss2 >= radius * radius) return 0
-  const half = Math.sqrt(radius * radius - miss2)
-  return Math.max(Math.min(along + half, reach) - Math.max(along - half, 0), 0)
+  const dy = dir.y / flatten
+  const a = dir.x * dir.x + dy * dy + dir.z * dir.z
+  const b = x * dir.x + y * dy + z * dir.z
+  const c = x * x + y * y + z * z - radius * radius
+  const disc = b * b - a * c
+  if (disc <= 0) return 0
+  const half = Math.sqrt(disc)
+  return Math.max(Math.min((b + half) / a, reach) - Math.max((b - half) / a, 0), 0)
 }
 
 // Leaf shapes, drawn as a path along the x axis from -length (the base) to
@@ -409,6 +431,28 @@ function oak(ctx, length, lobes = 4) {
   for (let i = 39; i >= 0; i--) ctx.lineTo(-length + (2 * length * i) / 40, width(i / 40))
 }
 
+// A pine sprig: a thin twig with needles in pairs along it, leaning towards
+// its tip and shortening there, one path so it fills in one go
+function sprig(ctx, length) {
+  const stem = Math.max(length * 0.04, 1.5)
+  ctx.rect(-length, -stem, length * 2, stem * 2)
+  const pairs = 7
+  for (let i = 0; i < pairs; i++) {
+    const t = i / (pairs - 1)
+    const x = -length * 0.85 + t * length * 1.7
+    const needle = length * 0.55 * (1 - 0.45 * t)
+    const half = Math.max(length * 0.035, 1.5)
+    for (const side of [-1, 1]) {
+      const tipX = x + needle * Math.cos(0.75)
+      const tipY = side * needle * Math.sin(0.75)
+      ctx.moveTo(x - half, 0)
+      ctx.lineTo(tipX, tipY)
+      ctx.lineTo(x + half, 0)
+      ctx.closePath()
+    }
+  }
+}
+
 // Textures, each four variations in a 2 x 2 atlas of 256-pixel cells,
 // white leaves on black: clusters of a few dozen small leaves, thicker
 // towards the middle
@@ -416,6 +460,7 @@ const LEAVES = {
   'pointed cluster': (ctx, random) => cluster(ctx, random, pointed, 34, 13, 21),
   'round cluster': (ctx, random) => cluster(ctx, random, round, 30, 12, 18),
   'oak cluster': (ctx, random) => cluster(ctx, random, (c, l) => oak(c, l, 3), 26, 16, 24),
+  'pine needles': (ctx, random) => cluster(ctx, random, sprig, 16, 34, 52),
 }
 
 export const LEAF_TEXTURES = Object.keys(LEAVES)
@@ -433,6 +478,7 @@ const ONE_OF = {
   'pointed cluster': pointed,
   'round cluster': round,
   'oak cluster': (ctx, length) => oak(ctx, length, 3),
+  'pine needles': (ctx, length) => sprig(ctx, length * 0.8),
 }
 
 export function fallingTexture(name) {

@@ -29,7 +29,7 @@ import {
   vec4,
   vertexIndex,
 } from 'three/tsl'
-import { mulberry32 } from './oak.js'
+import { mulberry32 } from './wood.js'
 import { celShade, linear, toneMapped, tintShadow } from './shading.js'
 import { swept } from './transition.js'
 import { blowing, wind } from './wind.js'

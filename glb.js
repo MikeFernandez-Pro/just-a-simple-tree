@@ -29,10 +29,10 @@ function cutout(image) {
   return texture
 }
 
-export async function exportGlb({ tree, foliage, barkColors, seed }) {
+export async function exportGlb({ tree, foliage, barkColors, species, seed }) {
   const scene = new THREE.Scene()
   scene.name = 'Just a simple tree'
-  scene.userData = { seed }
+  scene.userData = { species, seed }
 
   // The wood, without what only the growing needs
   const woodGeometry = new THREE.BufferGeometry()
@@ -74,7 +74,7 @@ export async function exportGlb({ tree, foliage, barkColors, seed }) {
   const glb = await new GLTFExporter().parseAsync(scene, { binary: true })
   const link = document.createElement('a')
   link.href = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }))
-  link.download = `tree-${seed}.glb`
+  link.download = `${species}-${seed}.glb`
   link.click()
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }

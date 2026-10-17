@@ -4,7 +4,17 @@
 // parameters. Clearing the box puts every row back and restores which
 // groups were open.
 // It walks the tab's items through their public API (children, isOpen,
-// toggle, show, hide), so it could move into three.js's Parameters tab as is
+// toggle, show, hide), so it could move into three.js's Parameters tab as is.
+// A control set unavailable stays hidden whatever the filter does
+
+// Shows or hides a control for good, past the filter: like a slider that
+// only one species of tree has
+export function setAvailable(control, available) {
+  control.domElement.dataset.unavailable = available ? '' : 'true'
+  if (available) control.show()
+  else control.hide()
+}
+const unavailable = (item) => item.data?.[1]?.dataset?.unavailable === 'true'
 
 export function addParameterFilter(inspector) {
   const parameters = inspector.parameters
@@ -50,6 +60,7 @@ export function addParameterFilter(inspector) {
     visit(item)
     for (const child of item.children) walk(child, visit)
   }
+  const show = (item) => unavailable(item) || item.show()
 
   function setOpen(item, open) {
     if (item.children.length > 0 && item.isOpen !== open) item.toggle()
@@ -57,9 +68,10 @@ export function addParameterFilter(inspector) {
 
   // Shows the item if it or anything under it matches; returns whether it did
   function filter(item, query) {
+    if (unavailable(item)) return false
     if (label(item).includes(query)) {
       walk(item, (inner) => {
-        inner.show()
+        show(inner)
         setOpen(inner, true)
       })
       return true
@@ -86,7 +98,7 @@ export function addParameterFilter(inspector) {
     } else if (openBefore) {
       for (const group of groups()) {
         walk(group, (item) => {
-          item.show()
+          show(item)
           if (openBefore.has(item)) setOpen(item, openBefore.get(item))
         })
       }

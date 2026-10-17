@@ -1,8 +1,9 @@
 # Just a simple tree
 
-A procedural oak with anime-style leaves, in three.js with WebGPU and TSL.
-Every branch and leaf is generated from a seed; nothing is modelled or
-loaded, and the leaf textures are painted in code at startup.
+A procedural tree with anime-style leaves, in three.js with WebGPU and TSL:
+an oak, a pine or a cypress. Every branch and leaf is generated from a
+seed; nothing is modelled or loaded, and the leaf textures are painted in
+code at startup.
 
 ## Run it
 
@@ -15,11 +16,19 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 
 ## What it does
 
-- **The tree** grows from a seed: a short trunk splitting into limbs, each
-  branching again, crooked and tapered, with rounded tips and collars where
-  branches meet.
-- **The leaves** are flat cards scattered over a clump at each free branch
-  tip. They borrow the clump's normals instead of their own, so a clump
+- **The tree** grows from a seed, as one of three species, picked with the
+  buttons down the left side or in the panel, all from the same
+  crooked, tapered wood with rounded tips and collars where branches meet:
+  - **oak**: a short trunk splitting into limbs, each branching again;
+  - **pine**: one straight trunk ringed by whorls of drooping branches, long
+    at the bottom and short at the top, so the crown is a tiered cone of
+    flat pads of needles;
+  - **cypress**: a tall, narrow flame of short branches climbing steeply
+    round a spiral, widest a third of the way up.
+- **The leaves** are flat cards scattered over leaf clumps: one at each free
+  branch tip on the oak, flat pads along the pine's branches, and round
+  clumps packed up the cypress. Picking a species puts on its own leaf
+  texture: needle sprigs for the pine. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
 - **Ambient occlusion** is worked out per card on the CPU, treating each
   clump as a leafy volume, so the colours depend on the sun and never on the
@@ -38,7 +47,7 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
   new seed. The old leaves blow away while the wood folds back into the
   ground, then the new tree grows out from the trunk to the tips, its leaves
   popping in last.
-- **Themes**: the round buttons at the top left switch between blossom,
+- **Themes**: the round buttons along the top switch between blossom,
   spring, autumn, frost and night. Each sets the leaves, the wood, the
   grass, the background and the shadows. The new theme sweeps over the screen from the
   bottom left to the top right behind a ragged Perlin-noise front with a
@@ -49,7 +58,8 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 
 Every setting lives in three's WebGPU Inspector (the button at the top
 right), one section per part of the scene, each with its own colors and
-debug views: the tree (theme, its shape, trunk and mesh with the wireframe),
+debug views: the tree (theme, species, its shape, trunk and mesh with the
+wireframe; the shape shows only the species' own sliders),
 the leaves (clumps, cards, shading and normals), wind, the grass (its
 size, blades, wind strength, shading and colours), falling leaves, and
 the lights (background, sun, sky, shadows, tone mapping).
@@ -174,10 +184,15 @@ export function celShade(mesh) {
 | --- | --- |
 | `main.js` | the scene, the panel and the render loop |
 | `bar.js` | the buttons at the bottom: new tree and save .glb |
-| `themes.js` | the colour themes and the buttons at the top left picking them |
+| `themes.js` | the colour themes and the buttons along the top picking them |
+| `species-buttons.js` | the buttons down the left picking the species, and their icons |
+| `stickers.js` | the round sticker buttons both rows are made of |
 | `transition.js` | the sweep from one theme to the next |
 | `icons/` | the theme buttons' icons |
-| `oak.js` | the seeded tree generator and its leaf clumps |
+| `wood.js` | the wood every species is built from: branches as tubes, and the growing data |
+| `oak.js` | the oak: its branching and leaf clumps |
+| `pine.js` | the pine: its whorls and leaf clumps |
+| `cypress.js` | the cypress: its spiral of climbing branches and leaf clumps |
 | `foliage.js` | the leaf cards, their shading and the painted textures |
 | `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |
