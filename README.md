@@ -195,6 +195,7 @@ export function celShade(mesh) {
 | `vertex-count.js` | the card counting the vertices save .glb will write |
 | `stickers.js` | the round sticker buttons both rows are made of |
 | `transition.js` | the sweep from one theme to the next |
+| `shake.js` | a theme landing: the camera's shake, the gust and the leaves knocked off |
 | `icons/` | the theme buttons' icons |
 | `wood.js` | the wood every species is built from: branches as tubes, and the growing data |
 | `oak.js` | the oak: its branching and leaf clumps, its icon, sliders and settings |

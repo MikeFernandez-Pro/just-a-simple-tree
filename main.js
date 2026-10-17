@@ -23,6 +23,7 @@ import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
 import { createSpeciesButtons } from "./species-buttons.js";
 import { createVertexCount } from "./vertex-count.js";
 import { sweep, sweptBackground } from "./transition.js";
+import { createShake } from "./shake.js";
 import {
   barkColors,
   barkMaterial,
@@ -230,78 +231,27 @@ function addRamp(folder, uniforms, names) {
 }
 // A theme picked from the panel or a button sweeps in from the bottom left
 // (transition.js), and the camera shakes a little as it does, a gust blows
-// through the tree and knocks a handful of leaves off it. Picks stack:
-// each sends its own sweep after the ones still going. The panel's controls
-// take the theme at once, through what it binds, so they show it and the
-// address keeps it. While the page opens, a theme lands at once: the first
-// one, then one from its address
+// through the tree and knocks a handful of leaves off it (shake.js). Picks
+// stack: each sends its own sweep after the ones still going. The panel's
+// controls take the theme at once, through what it binds, so they show it
+// and the address keeps it. While the page opens, a theme lands at once: the
+// first one, then one from its address
 let themeSeconds = 0;
 let themeName = START_THEME;
 let themeBindings = [];
+const shake = createShake({ camera, falling });
 function pickTheme(name) {
   themeName = name;
   themeButtons.show(name);
   if (themeSeconds) {
     sweep(themeSeconds);
-    shakeFrom = performance.now();
-    falling.shake();
+    shake.start(themeSeconds);
   }
   for (const [control, value] of themeBindings) {
     control.setValue(value(THEMES[name]));
   }
 }
 
-// The shake: the camera jitters round where it is, a few centimetres and a
-// fraction of a degree, sharply at first and dying away over the sweep. It's
-// added for the frame drawn and taken off after, so the controls never see it
-const SHAKE = 0.02; // metres at its strongest
-const ROLL = 0.0015; // radians of roll at its strongest
-let shakeFrom = -Infinity;
-const shakeOffset = new THREE.Vector3();
-const shakeAxis = new THREE.Vector3();
-const shakeSaved = {
-  position: new THREE.Vector3(),
-  quaternion: new THREE.Quaternion(),
-};
-function shakeCamera(now) {
-  const t = (now - shakeFrom) / 1000 / themeSeconds;
-  if (!(t >= 0 && t < 1)) return false;
-  const strength = Math.min(t / 0.06, 1) * (1 - t) ** 2;
-  const s = now / 1000;
-  // A few sines at odd rates, so it never quite repeats
-  const x = Math.sin(s * 47) + 0.5 * Math.sin(s * 83 + 1.3);
-  const y = Math.sin(s * 53 + 2.1) + 0.5 * Math.sin(s * 71 + 0.4);
-  const r = Math.sin(s * 39 + 0.7);
-  shakeSaved.position.copy(camera.position);
-  shakeSaved.quaternion.copy(camera.quaternion);
-  camera.updateMatrixWorld();
-  shakeOffset
-    .setFromMatrixColumn(camera.matrixWorld, 0)
-    .multiplyScalar(x * SHAKE * strength);
-  camera.position.add(shakeOffset);
-  shakeOffset
-    .setFromMatrixColumn(camera.matrixWorld, 1)
-    .multiplyScalar(y * SHAKE * strength);
-  camera.position.add(shakeOffset);
-  camera.rotateOnAxis(shakeAxis.set(0, 0, 1), r * ROLL * strength);
-  camera.updateMatrixWorld();
-  return true;
-}
-// The gust: the wind blows harder for a moment, rising quickly and dying
-// away slowly, so the tree swings out and settles after the shake
-const GUST = 2; // how much harder it blows at its strongest: 2 is three times
-const GUST_SECONDS = 2.5;
-function gustTree(now) {
-  const t = (now - shakeFrom) / 1000 / GUST_SECONDS;
-  const rise = Math.min(t / 0.12, 1);
-  wind.gust.value =
-    t >= 0 && t < 1 ? GUST * rise * rise * (3 - 2 * rise) * (1 - t) ** 2 : 0;
-}
-function unshakeCamera() {
-  camera.position.copy(shakeSaved.position);
-  camera.quaternion.copy(shakeSaved.quaternion);
-  camera.updateMatrixWorld();
-}
 // A new tree from a new seed, with a burst: from the button at the bottom or
 // space. The seed goes through its slider, so the panel shows it
 const { regenerate } = createRegenerate({
@@ -694,10 +644,8 @@ renderer.setAnimationLoop(() => {
   matchPage();
   keepAboveGround();
   controls.update();
-  gustTree(performance.now());
+  shake.blow(performance.now());
   rebuildIfWanted();
   falling.update(renderer);
-  const shaken = shakeCamera(performance.now());
-  renderer.render(scene, camera);
-  if (shaken) unshakeCamera();
+  shake.draw(performance.now(), () => renderer.render(scene, camera));
 });
