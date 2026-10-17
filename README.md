@@ -28,6 +28,13 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
   - **willow** (weeping willow): a short, stout trunk splitting into limbs that rise and
     spread like a fountain, hung with long thin strands that arch over and
     fall in curtains towards the ground.
+- **Each seed has its own character**: besides placing every branch, it
+  makes the tree taller or shorter, broader or slimmer, leaning a little and
+  heavier on one side, and varies what makes its species: where the pine's
+  crown starts and how it droops, where the cypress is widest and how sharp
+  its tip is, how wide the willow's dome is and how long its curtains.
+  **variety**, in the shape folder, sets how far: at 0 every seed grows its
+  species' average tree.
 - **The leaves** are flat cards scattered over leaf clumps: one at each free
   branch tip on the oak, flat pads along the pine's branches, round
   clumps packed up the cypress, and long tresses down the willow's strands,

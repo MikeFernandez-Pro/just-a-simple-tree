@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, heading, mulberry32, splay, UP } from './wood.js'
+import { alongBranch, character, createWood, heading, lopsided, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for a weeping willow: a short, thick trunk
 // splitting into a few limbs that rise and spread like a fountain, each
@@ -12,6 +12,7 @@ const TRUNK = 0.3 // the trunk's length / the height
 const TRUNK_SEGMENTS = 4 // kinks up the trunk
 const TRUNK_TAPER = 0.7 // the trunk's radius at its top / at the ground
 const TRUNK_THICKNESS = 1.25 // the trunk's radius / the trunk thickness: a willow's is stout
+const LEAN = 0.08 // how far the trunk leans off upright, in radians
 const LIMB_LENGTH = 0.6 // a limb's length / the height
 const LIMB_SPREAD = 0.7 // how far a limb leans off the trunk, in radians
 const LIMB_SEGMENTS = 5 // kinks per limb
@@ -71,10 +72,19 @@ export const willow = {
 function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
-  const height = params.size * HEIGHT
+  // This willow's character: taller or shorter, its dome wider or narrower,
+  // its curtains longer or shorter, leaning more or less, its crown heavier
+  // on one side
+  const { vary, bearing } = character(params)
+  const height = params.size * HEIGHT * vary(1, 0.1)
+  const limbSpread = LIMB_SPREAD * vary(1, 0.2)
+  const hang = Math.min(params.hang * vary(1, 0.15), 1)
+  const leaning = vary(LEAN, 0.07)
+  const side = bearing()
+  const heavy = vary(0, 0.2)
 
   // A short trunk, leaning a little
-  const lean = splay(UP, random() * Math.PI * 2, 0.08)
+  const lean = splay(UP, random() * Math.PI * 2, leaning)
   const trunkLength = height * TRUNK
   const trunk = wood.branch(new THREE.Vector3(), lean, trunkLength, params.trunkThickness * TRUNK_THICKNESS, params.crookedness * 0.3, {
     segments: TRUNK_SEGMENTS,
@@ -90,8 +100,8 @@ function grow(params) {
   const arches = []
   for (let l = 0; l < params.mainLimbs; l++) {
     const around = ((l + random() * 0.5) / params.mainLimbs) * Math.PI * 2
-    const dir = splay(topDir, around, LIMB_SPREAD * (0.8 + random() * 0.4))
-    const length = height * LIMB_LENGTH * (0.85 + random() * 0.3)
+    const dir = splay(topDir, around, limbSpread * (0.8 + random() * 0.4))
+    const length = height * LIMB_LENGTH * (0.85 + random() * 0.3) * lopsided(around, side, heavy)
     const limb = wood.branch(top, dir, length, topRadius * LIMB_THICKNESS, params.crookedness, {
       parent: { dir: topDir, radius: topRadius },
       from: trunkLength,
@@ -140,7 +150,7 @@ function grow(params) {
       const rise = STRAND_RISE * (0.5 + random())
       const dir = heading(around, rise)
       const room = Math.max(point.y - height * GROUND_GAP, 0)
-      const drop = Math.min(room * params.hang * (0.8 + random() * 0.3), room)
+      const drop = Math.min(room * hang * (0.8 + random() * 0.3), room)
       const strandLength = height * ARCH + drop
       const start = from + along * length
       const strand = wood.branch(point, dir, strandLength, strandRadius, params.crookedness * 0.3, {

@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, GOLDEN_ANGLE, heading, mulberry32, UP } from './wood.js'
+import { alongBranch, character, createWood, GOLDEN_ANGLE, heading, lopsided, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for a fir: one straight trunk tapering to a
 // point, ringed by whorls of branches, long at the bottom and short at the
@@ -51,10 +51,20 @@ export const pine = {
 function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
-  const height = params.size * HEIGHT
+  // This pine's character: taller or shorter, broader or slimmer, its crown
+  // starting higher or lower up the trunk, drooping more or less, leaning a
+  // little, its crown fuller on one side
+  const { vary, bearing } = character(params)
+  const height = params.size * HEIGHT * vary(1, 0.12)
+  const width = vary(1, 0.2)
+  const bare = vary(BARE, 0.07)
+  const droop = THREE.MathUtils.clamp(params.droop + vary(0, 0.3), -1, 1)
+  const lean = splay(UP, bearing(), vary(0, 0.05))
+  const side = bearing()
+  const heavy = vary(0, 0.2)
 
   // The trunk, nearly straight
-  const trunk = wood.branch(new THREE.Vector3(), UP, height, params.trunkThickness, params.crookedness * 0.3, {
+  const trunk = wood.branch(new THREE.Vector3(), lean, height, params.trunkThickness, params.crookedness * 0.3, {
     segments: TRUNK_SEGMENTS,
     taper: TRUNK_TAPER,
     upPull: TRUNK_PULL,
@@ -69,22 +79,22 @@ function grow(params) {
   const whorls = params.whorls
   for (let w = 0; w < whorls; w++) {
     const t = whorls > 1 ? w / (whorls - 1) : 0
-    const at = THREE.MathUtils.lerp(BARE, TOP, t) + (random() - 0.5) * (0.4 / whorls)
+    const at = THREE.MathUtils.lerp(bare, TOP, t) + (random() - 0.5) * (0.4 / whorls)
     const { point, dir: trunkDir, radius: trunkRadius } = onTrunk(at)
-    const reach = height * REACH * THREE.MathUtils.lerp(1, SHORTEST, t)
+    const reach = height * REACH * width * THREE.MathUtils.lerp(1, SHORTEST, t)
     if (t >= CORES_FROM) cores.push({ position: point, radius: Math.min(reach * CORE, height * CORE_LARGEST), from: at * height })
     for (let b = 0; b < params.whorlBranches; b++) {
       const around = ((b + (random() - 0.5) * 0.5) / params.whorlBranches) * Math.PI * 2 + w * GOLDEN_ANGLE
       const rise = THREE.MathUtils.lerp(0.05, 0.6, t) + (random() - 0.5) * 0.2
       const dir = heading(around, rise)
-      const length = reach * (0.85 + random() * 0.3)
+      const length = reach * (0.85 + random() * 0.3) * lopsided(around, side, heavy)
       const from = at * height
       const shape = wood.branch(point, dir, length, trunkRadius * BRANCH_THICKNESS, params.crookedness * 0.5, {
         parent: { dir: trunkDir, radius: trunkRadius },
         from,
         segments: BRANCH_SEGMENTS,
         taper: BRANCH_TAPER,
-        upPull: -params.droop * DROOP,
+        upPull: -droop * DROOP,
       })
       branches.push({ shape, length, from })
     }

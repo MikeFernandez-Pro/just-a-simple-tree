@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { createWood, mulberry32, splay, UP } from './wood.js'
+import { character, createWood, lopsided, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for an oak
 const SEGMENTS = 4 // kinks per branch
@@ -27,6 +27,16 @@ export const oak = {
 function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
+  // This oak's character: taller or shorter, splitting higher or lower,
+  // spreading wider or narrower, leaning a little, its crown heavier on one
+  // side
+  const { vary, bearing } = character(params)
+  const size = params.size * vary(1, 0.12)
+  const splitHeight = params.splitHeight * vary(1, 0.25)
+  const spread = params.spread * vary(1, 0.2)
+  const lean = splay(UP, bearing(), vary(0, 0.1))
+  const side = bearing()
+  const heavy = vary(0, 0.25)
   const twigs = [] // the last branches
   const freeTipped = [] // branches that carry others but end in a free tip, no child there
 
@@ -45,7 +55,7 @@ function grow(params) {
       if (k === SEGMENTS) forked = true
       const parentDir = points[k].clone().sub(points[k - 1]).normalize()
       const around = ((c + random() * 0.5) / params.branches) * Math.PI * 2
-      const childDir = splay(parentDir, around, params.spread * (0.6 + random() * 0.6))
+      const childDir = splay(parentDir, around, spread * (0.6 + random() * 0.6))
       const childLength = length * LENGTH_FALLOFF * (0.8 + random() * 0.4)
       grow(
         points[k],
@@ -61,14 +71,14 @@ function grow(params) {
   }
 
   // A short, thick trunk that splits low into a few heavy limbs
-  const trunkLength = params.size * params.splitHeight
-  const trunk = wood.branch(new THREE.Vector3(), UP, trunkLength, params.trunkThickness, params.crookedness * 0.3, SHAPE)
+  const trunkLength = size * splitHeight
+  const trunk = wood.branch(new THREE.Vector3(), lean, trunkLength, params.trunkThickness, params.crookedness * 0.3, SHAPE)
   const top = trunk.points[SEGMENTS]
   const topDir = top.clone().sub(trunk.points[SEGMENTS - 1]).normalize()
   for (let l = 0; l < params.mainLimbs; l++) {
     const around = ((l + random() * 0.5) / params.mainLimbs) * Math.PI * 2
-    const dir = splay(topDir, around, params.spread * (0.8 + random() * 0.4))
-    const length = params.size * (1 - params.splitHeight) * (0.7 + random() * 0.2)
+    const dir = splay(topDir, around, spread * (0.8 + random() * 0.4))
+    const length = size * (1 - splitHeight) * (0.7 + random() * 0.2) * lopsided(around, side, heavy)
     grow(
       top,
       dir,

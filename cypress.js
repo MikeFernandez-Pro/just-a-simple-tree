@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, GOLDEN_ANGLE, heading, mulberry32, UP } from './wood.js'
+import { alongBranch, character, createWood, GOLDEN_ANGLE, heading, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for an Italian cypress: a tall, narrow flame. One
 // straight trunk, with short branches all the way up it climbing steeply
@@ -16,6 +16,7 @@ const TOP = 0.95 // and the highest
 const WIDEST = 0.3 // where the crown is widest, of the height
 const BASE_WIDTH = 0.65 // the crown's width at the lowest branch / at its widest
 const WIDTH = 0.11 // the crown's half width at its widest / the height, at slenderness 1
+const TIP = 1.6 // how sharply the crown closes to its tip: higher, blunter
 const BRANCH_SEGMENTS = 3 // kinks per branch
 const BRANCH_TAPER = 0.4 // a branch's radius at its end / at its start
 const BRANCH_THICKNESS = 0.35 // a branch's radius / the trunk's where it grows
@@ -46,21 +47,29 @@ export const cypress = {
 function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
-  const height = params.size * HEIGHT
+  // This cypress's character: taller or shorter, wider or slimmer, widest
+  // lower or higher up, fuller or narrower at its foot, its tip blunter or
+  // sharper, leaning a little
+  const { vary, bearing } = character(params)
+  const height = params.size * HEIGHT * vary(1, 0.1)
+  const width = WIDTH * vary(1, 0.2)
+  const widest = vary(WIDEST, 0.1)
+  const baseWidth = vary(BASE_WIDTH, 0.2)
+  const tip = vary(TIP, 0.5)
+  const lean = splay(UP, bearing(), vary(0, 0.05))
 
   // The crown's half width a share of the way up the tree: from the lowest
-  // branch it widens to a third of the way up, then closes to nothing at
-  // the top
+  // branch it widens to its widest, then closes to nothing at the top
   const halfWidth = (at) => {
     const shape =
-      at < WIDEST
-        ? THREE.MathUtils.lerp(BASE_WIDTH, 1, Math.max(at - BARE, 0) / (WIDEST - BARE))
-        : 1 - Math.pow((at - WIDEST) / (1 - WIDEST), 1.6)
-    return (height * WIDTH * Math.max(shape, 0)) / params.slenderness
+      at < widest
+        ? THREE.MathUtils.lerp(baseWidth, 1, Math.max(at - BARE, 0) / (widest - BARE))
+        : 1 - Math.pow((at - widest) / (1 - widest), tip)
+    return (height * width * Math.max(shape, 0)) / params.slenderness
   }
 
   // The trunk, straight
-  const trunk = wood.branch(new THREE.Vector3(), UP, height, params.trunkThickness, params.crookedness * 0.2, {
+  const trunk = wood.branch(new THREE.Vector3(), lean, height, params.trunkThickness, params.crookedness * 0.2, {
     segments: TRUNK_SEGMENTS,
     taper: TRUNK_TAPER,
     upPull: TRUNK_PULL,

@@ -178,6 +178,25 @@ function perpendicular(v) {
   return new THREE.Vector3().crossVectors(v, other).normalize()
 }
 
+// A tree's own character: how far its seed takes it from its species'
+// average, drawn from a random of its own, so it never moves the branches'
+// draws. vary(value, by) is value give or take by, as far as the variety
+// takes it: always value at 0, anywhere in the range at 1. bearing() is a
+// compass bearing, for a lean or the side a crown is heavier on
+export function character(params) {
+  const random = mulberry32(params.seed + 3571)
+  return {
+    vary: (value, by) => value + (random() * 2 - 1) * by * params.variety,
+    bearing: () => random() * Math.PI * 2,
+  }
+}
+
+// How much longer a branch heading around is on a crown heavier by heavy
+// towards side: 1 + heavy facing it, 1 - heavy facing away
+export function lopsided(around, side, heavy) {
+  return 1 + heavy * Math.cos(around - side)
+}
+
 // Small seeded random, so a seed always gives the same tree
 export function mulberry32(seed) {
   return () => {

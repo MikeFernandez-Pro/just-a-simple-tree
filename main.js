@@ -114,6 +114,7 @@ const params = {
   crookedness: 0.5,
   sides: 10,
   smoothness: 3,
+  variety: 1, // how far each seed's own character takes its tree from its species' average
   cardsPerClump: 35,
   clumpSize: 1, // scales every leaf clump, and its cards with it
   aoDistance: 2.5, // the tutorial's AO node distance
@@ -332,6 +333,7 @@ const SHAPE_SLIDERS = {
   splitHeight: { min: 0.15, max: 0.6, name: "split height" },
   sides: { min: 3, max: 24, step: 1 },
   smoothness: { min: 1, max: 8, step: 1 },
+  variety: { min: 0, max: 1 },
 };
 const shapeControls = {};
 for (const [key, { min, max, step, name = key }] of Object.entries(
