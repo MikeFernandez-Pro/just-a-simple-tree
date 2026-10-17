@@ -105,6 +105,4 @@ export function addParameterFilter(inspector) {
       openBefore = null
     }
   })
-
-  return input
 }

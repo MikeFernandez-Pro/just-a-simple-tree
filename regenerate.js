@@ -14,8 +14,7 @@ const UNFOLD = 0.25 // how much of the growth each ring takes to unfold
 
 // How far along its own growth a point of the wood is, eased
 function grownBy(birth) {
-  const k = growth.mul(1 + UNFOLD).sub(birth).div(UNFOLD).clamp(0, 1)
-  return k.mul(k).mul(float(3).sub(k.mul(2)))
+  return growth.mul(1 + UNFOLD).sub(birth).div(UNFOLD).smoothstep(0, 1)
 }
 
 // The wood: each ring slides out from its branch's root to its place, and

@@ -1,11 +1,9 @@
+import { INK, LINE } from './stickers.js'
+
 // The buttons at the bottom, like stickers: white, a soft outline and a
 // hard shadow off to the side, tilted a little, so they read on any
 // background and theme. A new tree, and saving it as a GLB; each says what
 // it's doing while it runs
-
-const LINE = '#46434d' // the outline, a soft charcoal rather than black; the shadow is the page's
-// --button-shadow, black on a dark background
-const INK = '#2b2a30' // the words
 
 export function createBar({ onNewTree, onSave }) {
   const style = document.createElement('style')

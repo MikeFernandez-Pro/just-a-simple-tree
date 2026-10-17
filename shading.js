@@ -2,7 +2,6 @@ import * as THREE from 'three/webgpu'
 import {
   acesFilmicToneMapping,
   agxToneMapping,
-  attribute,
   cineonToneMapping,
   float,
   linearToneMapping,
@@ -12,14 +11,13 @@ import {
   Fn,
   mix,
   output,
-  positionGeometry,
   smoothstep,
   step,
   uniform,
   vec3,
   vec4,
 } from 'three/tsl'
-import { sway } from './wind.js'
+import { swayedWood } from './wind.js'
 import { grownWood } from './regenerate.js'
 import { swept } from './transition.js'
 
@@ -32,7 +30,8 @@ import { swept } from './transition.js'
 // picks its band from how bright the light is, and the band is then tinted by
 // the light's colour
 
-const ALBEDO = 0.8
+// The tutorial's Diffuse's albedo, which the ramps' band edges expect
+export const ALBEDO = 0.8
 
 export const sunDirection = uniform(new THREE.Vector3(0, 1, 0))
 
@@ -61,7 +60,7 @@ export const tintShadow = Fn(([shadow]) => mix(mix(vec3(1), shownShadowColor, sh
 // A Blender colour ramp with constant interpolation, from [position, colour]
 // stops in order: each colour holds until the next stop, no blending, so the
 // bands are hard-edged cel
-export function ramp(value, stops) {
+function ramp(value, stops) {
   let color = stops[0][1]
   for (let i = 1; i < stops.length; i++) {
     const [at, next] = stops[i]
@@ -118,7 +117,7 @@ export function linear(r, g, b) {
 
 // A lit surface read back through a ramp: Lambert under the lights, with
 // their shadows, is the tutorial's Diffuse + Shader to RGB
-export function celMaterial(stops) {
+function celMaterial(stops) {
   const material = new THREE.MeshLambertNodeMaterial({ color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO) })
   material.outputNode = vec4(toneMapped(celShade(stops)), output.a)
   material.receivedShadowNode = tintShadow
@@ -127,18 +126,13 @@ export function celMaterial(stops) {
 
 // The tutorial's trunk: a three-stop brown ramp, its colours open to the panel
 export const barkColors = [linear(0.031, 0.027, 0.024), linear(0.074, 0.061, 0.042), linear(0.148, 0.117, 0.068)]
+export const BARK_STOPS = [0, 0.497, 1] // where each of them starts
 
 export function barkMaterial() {
-  const [shadow, mid, light] = barkColors.map((color) => swept(color))
-  const material = celMaterial([
-    [0, shadow],
-    [0.497, mid],
-    [1, light],
-  ])
+  const material = celMaterial(BARK_STOPS.map((at, i) => [at, swept(barkColors[i])]))
   // The wood grows from the ground, and sways with the wind, more towards
   // the top, and more down what hangs
-  const grown = grownWood()
-  material.positionNode = grown.add(sway(grown, attribute('swayLift', 'float')))
+  material.positionNode = swayedWood(grownWood())
   // The shadow map draws the wood's own faces, not its back ones (the
   // renderer's default), so its shadow sits where the wood is
   material.shadowSide = THREE.FrontSide

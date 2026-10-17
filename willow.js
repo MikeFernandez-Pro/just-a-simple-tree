@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, mulberry32, splay, UP } from './wood.js'
+import { alongBranch, createWood, heading, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for a weeping willow: a short, thick trunk
 // splitting into a few limbs that rise and spread like a fountain, each
@@ -138,7 +138,7 @@ function grow(params) {
       if (out.lengthSq() < 1e-4) out.set(archDir.x, 0, archDir.z)
       const around = Math.atan2(out.z, out.x) + (random() - 0.5) * 1.6
       const rise = STRAND_RISE * (0.5 + random())
-      const dir = new THREE.Vector3(Math.cos(around) * Math.cos(rise), Math.sin(rise), Math.sin(around) * Math.cos(rise))
+      const dir = heading(around, rise)
       const room = Math.max(point.y - height * GROUND_GAP, 0)
       const drop = Math.min(room * params.hang * (0.8 + random() * 0.3), room)
       const strandLength = height * ARCH + drop

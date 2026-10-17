@@ -9,7 +9,9 @@ const CAP_RINGS = 3 // rings in the rounded dome closing each branch's tip
 const COLLAR = 0.9 // a child's base radius / its parent's radius there
 
 export const UP = new THREE.Vector3(0, 1, 0)
-const SIDE = new THREE.Vector3(1, 0, 0)
+export const SIDE = new THREE.Vector3(1, 0, 0)
+// Turning on by it each time spreads things evenly round a circle or a sphere
+export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
 export function createWood(params, random) {
   const positions = []
@@ -157,6 +159,12 @@ export function alongBranch({ points, radii }, at) {
     dir: b.clone().sub(a).normalize(),
     radius: THREE.MathUtils.lerp(radii[k], radii[k + 1], f),
   }
+}
+
+// A direction from its compass bearing, around, and how far it rises off
+// level, both in radians
+export function heading(around, rise) {
+  return new THREE.Vector3(Math.cos(around) * Math.cos(rise), Math.sin(rise), Math.sin(around) * Math.cos(rise))
 }
 
 // Lean a direction away from itself by angle, on the side given by around

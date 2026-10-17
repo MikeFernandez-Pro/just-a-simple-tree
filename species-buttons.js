@@ -1,11 +1,8 @@
-import { createStickers } from './stickers.js'
+import { createStickers, INK, LINE } from './stickers.js'
 
 // The buttons picking the species, a column of stickers down the left side,
 // centred, each with its species' small flat silhouette in the outline's
 // ink. Hovering one shows its name beside it, on a little sticker of its own
-
-const LINE = '#46434d' // the outline, as in the stickers
-const INK = '#2b2a30' // the words, as in the bar
 
 const svg = (paths) =>
   `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">${paths}</svg>`

@@ -22,14 +22,13 @@ import {
   texture,
   time,
   uniform,
-  uv,
-  vec2,
   vec3,
   vec4,
 } from 'three/tsl'
+import { atlasUV } from './foliage.js'
 import { toneMapped } from './shading.js'
 import { swept } from './transition.js'
-import { blowing, wind } from './wind.js'
+import { blowing, downwind, wind } from './wind.js'
 
 // Falling leaves, after the tutorial's Blender particles (leaves spawned inside
 // the tree, random size and turn, pushed by wind and turbulence, in the
@@ -63,11 +62,12 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   }
   const u = uniforms
 
+  // Whether leaves may leave the tree at all: not while a new tree grows
+  const spawning = () => u.spawning.greaterThan(0.5)
   // Whether a leaf may leave the tree now: the first amount of them, while
-  // no new tree is growing. Every leaf is drawn, the others hidden, so
-  // changing the amount never shows leaves mid-air: they join or stop as
-  // their lives end
-  const free = () => u.spawning.greaterThan(0.5).and(instanceIndex.toFloat().lessThan(u.amount))
+  // spawning. Every leaf is drawn, the others hidden, so changing the amount
+  // never shows leaves mid-air: they join or stop as their lives end
+  const free = () => spawning().and(instanceIndex.toFloat().lessThan(u.amount))
 
   // Per leaf: where it is and how far through its life, and how settled it
   // is on the floor (0 in the air, 1 lying flat)
@@ -84,6 +84,15 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     return crownCenter.add(direction.mul(crownSize).mul(depth))
   }
 
+  // Which frame it is, so a leaf leaving again starts somewhere new
+  const tick = floor(time.mul(60))
+
+  // A leaf leaving the tree: from a new point in the crown, in the air
+  const leave = () => {
+    positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(tick)))
+    settled.element(instanceIndex).assign(0)
+  }
+
   // Start every free leaf somewhere in the crown, at a random point of its
   // life; the others wait
   const init = Fn(() => {
@@ -98,16 +107,11 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     const progress = progresses.element(instanceIndex)
     const flat = settled.element(instanceIndex)
     const dt = deltaTime.min(0.05)
-    const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
 
     // Life: when it's over, start again from a new point in the crown. A leaf
     // that isn't free when its life is over waits instead, hidden, its
     // progress below 0; once free again the waiting ones leave one by one
     // over a lifetime, so the fall builds up again from the crown
-    const leave = () => {
-      position.assign(spawn(instanceIndex.mul(7).add(floor(time.mul(60)))))
-      flat.assign(0)
-    }
     If(progress.lessThan(0), () => {
       If(free(), () => {
         progress.addAssign(dt.div(u.lifetime))
@@ -120,7 +124,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
           progress.assign(progress.fract())
           leave()
         }).Else(() => {
-          progress.assign(hash(instanceIndex.add(floor(time.mul(60)))).negate())
+          progress.assign(hash(instanceIndex.add(tick)).negate())
         })
       })
     })
@@ -152,15 +156,13 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     const index = instanceIndex.toFloat()
     const progress = progresses.element(instanceIndex)
     If(
-      u.spawning
-        .greaterThan(0.5)
+      spawning()
         .and(index.greaterThanEqual(u.amount))
         .and(index.lessThan(u.amount.add(LOOSE)))
         .and(progress.lessThan(0)),
       () => {
-        progress.assign(hash(instanceIndex.add(floor(time.mul(60))).add(101)).mul(0.1))
-        positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(floor(time.mul(60)))))
-        settled.element(instanceIndex).assign(0)
+        progress.assign(hash(instanceIndex.add(tick).add(101)).mul(0.1))
+        leave()
       },
     )
   })().compute(MAX_LEAVES)
@@ -191,9 +193,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   })()
 
   // Alpha: one leaf in the tree's style, clipped hard, in the shadow too
-  const variant = floor(hash(instanceIndex.add(7919)).mul(4))
-  const cell = vec2(variant.mod(2), floor(variant.div(2)))
-  const leafTexture = texture(new THREE.Texture(), uv().add(cell).mul(0.5))
+  const leafTexture = texture(new THREE.Texture(), atlasUV())
   material.opacityNode = leafTexture.r
   material.alphaTest = 0.5
   material.maskShadowNode = leafTexture.r.greaterThan(0.5)

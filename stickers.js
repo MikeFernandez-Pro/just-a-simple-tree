@@ -4,7 +4,11 @@
 // a ring in the outline's charcoal springs round it, a little way out. It
 // can still be hovered for its name. White so they read on any background
 
-const LINE = '#46434d' // the outline, as in the bar
+// The ink of every button and card on the page: the outline, a soft
+// charcoal rather than black (the shadow is the page's --button-shadow, black
+// on a dark background), and the words
+export const LINE = '#46434d'
+export const INK = '#2b2a30'
 const SIZE = 50 // a sticker's width, in pixels
 
 let styled = false

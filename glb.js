@@ -1,5 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
+import { LEAF_STOPS } from './foliage.js'
+import { BARK_STOPS } from './shading.js'
 
 // The tree as a GLB ready for a plain MeshStandardMaterial anywhere: the
 // wood, and the leaf cards as they stand with no wind, lit by the clumps'
@@ -40,7 +42,7 @@ export async function exportGlb({ tree, foliage, barkColors, species, seed }) {
   woodGeometry.setAttribute('normal', tree.geometry.attributes.normal)
   woodGeometry.setIndex(tree.geometry.index)
   const bark = new THREE.MeshStandardMaterial({ name: 'bark', color: barkColors[1].value, roughness: 1, metalness: 0 })
-  bark.userData.celRamp = [0, 0.497, 1].map((at, i) => [at, hex(barkColors[i].value)])
+  bark.userData.celRamp = BARK_STOPS.map((at, i) => [at, hex(barkColors[i].value)])
   const wood = new THREE.Mesh(woodGeometry, bark)
   wood.name = 'wood'
   scene.add(wood)
@@ -64,7 +66,7 @@ export async function exportGlb({ tree, foliage, barkColors, species, seed }) {
     leafMaterial.color.r = Math.min(leafMaterial.color.r, 1)
     leafMaterial.color.g = Math.min(leafMaterial.color.g, 1)
     leafMaterial.color.b = Math.min(leafMaterial.color.b, 1)
-    leafMaterial.userData.celRamp = [0, 0.04545, 0.49773, 0.95455].map((at, i) => [at, hex(colors[i])])
+    leafMaterial.userData.celRamp = LEAF_STOPS.map((at, i) => [at, hex(colors[i])])
     leafMaterial.userData.shadeScale = shadeScale
     const leaves = new THREE.Mesh(geometry, leafMaterial)
     leaves.name = 'leaves'

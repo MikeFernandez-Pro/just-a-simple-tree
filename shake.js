@@ -32,8 +32,7 @@ export function createShake({ camera, falling }) {
   // The gust's share of the wind at the time now, in milliseconds
   function blow(now) {
     const t = (now - from) / 1000 / GUST_SECONDS
-    const rise = Math.min(t / 0.12, 1)
-    wind.gust.value = t >= 0 && t < 1 ? GUST * rise * rise * (3 - 2 * rise) * (1 - t) ** 2 : 0
+    wind.gust.value = t >= 0 && t < 1 ? GUST * THREE.MathUtils.smoothstep(t, 0, 0.12) * (1 - t) ** 2 : 0
   }
 
   // Draw a frame from the camera as shaken at the time now, then put it back

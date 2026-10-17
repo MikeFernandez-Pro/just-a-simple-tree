@@ -7,6 +7,7 @@ import {
   addReset,
   addShareLink,
   closeAll,
+  onChangeNow,
   trackFolders,
 } from "./inspector-tools.js";
 import { oak } from "./oak.js";
@@ -37,8 +38,8 @@ import {
   sun,
   sunDirection,
 } from "./shading.js";
-import { sway, wind } from "./wind.js";
-import { attribute, positionGeometry } from "three/tsl";
+import { swayedWood, wind } from "./wind.js";
+import { positionGeometry } from "three/tsl";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -116,7 +117,7 @@ const params = {
   cardsPerClump: 35,
   clumpSize: 1, // scales every leaf clump, and its cards with it
   aoDistance: 2.5, // the tutorial's AO node distance
-  leavesTexture: "round cluster",
+  leafTexture: "round cluster",
   showClumps: false,
   wireframe: false,
   leaves: true,
@@ -141,9 +142,7 @@ const wireframe = new THREE.Mesh(
   tree.geometry,
   new THREE.MeshBasicNodeMaterial({ color: "#1e1e1e", wireframe: true }),
 );
-wireframe.material.positionNode = positionGeometry.add(
-  sway(positionGeometry, attribute("swayLift", "float")),
-);
+wireframe.material.positionNode = swayedWood(positionGeometry);
 wireframe.visible = false;
 scene.add(wireframe);
 
@@ -157,10 +156,14 @@ const falling = createFallingLeaves({
   crownCenter: foliage.uniforms.crownCenter,
   crownSize: foliage.uniforms.crownSize,
 });
-foliage.setLeafTexture(params.leavesTexture);
-falling.setTexture(fallingTexture(params.leavesTexture));
 scene.add(falling.mesh);
 
+// The leaf texture, on the cards and on what falls from them
+function setLeafTexture(name) {
+  foliage.setLeafTexture(name);
+  falling.setTexture(fallingTexture(name));
+}
+setLeafTexture(params.leafTexture);
 
 // How many vertices the GLB would hold, the wood's and the leaves', kept up
 // to date as the tree is rebuilt and its cards are cut up
@@ -177,28 +180,35 @@ function countVertices() {
 const SPECIES = { oak, pine, cypress, willow };
 
 // Sliders send a change on every step of a drag: the tree is rebuilt once
-// per frame at most, with the latest values
+// per frame at most, with the latest values. A leaf setting that leaves the
+// clumps where they are only scatters the cards again
 let rebuildWanted = false;
+let leavesWanted = false;
 function requestRebuild() {
   rebuildWanted = true;
 }
+function requestLeaves() {
+  leavesWanted = true;
+}
 function rebuildIfWanted() {
-  if (!rebuildWanted) return;
-  rebuildWanted = false;
-  rebuild();
+  if (rebuildWanted) rebuild();
+  else if (leavesWanted) scatterLeaves();
+  rebuildWanted = leavesWanted = false;
 }
 
+let grown;
 function rebuild() {
-  const grown = SPECIES[params.species].grow(params);
+  grown = SPECIES[params.species].grow(params);
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
   grown.geometry.computeBoundingBox();
   wind.height.value = grown.geometry.boundingBox.max.y;
+  scatterLeaves();
+}
 
+function scatterLeaves() {
   foliage.update(grown.clumps, params);
-  foliage.mesh.visible &&= params.leaves;
-
   countVertices();
 }
 
@@ -238,7 +248,6 @@ function addRamp(folder, uniforms, names) {
 // first one, then one from its address
 let themeSeconds = 0;
 let themeName = START_THEME;
-let themeBindings = [];
 const shake = createShake({ camera, falling });
 function pickTheme(name) {
   themeName = name;
@@ -253,40 +262,34 @@ function pickTheme(name) {
 }
 
 // A new tree from a new seed, with a burst: from the button at the bottom or
-// space. The seed goes through its slider, so the panel shows it
+// space. The seed goes through its slider, so the panel shows it, and the
+// tree is rebuilt at once, not left for the next frame
 const { regenerate } = createRegenerate({
   setSeed: (seed) => {
     seedControl.setValue(seed);
-    // The slider's onChange runs on the next tick: the rebuild is done then,
-    // not left for the next frame
-    return new Promise((resolve) =>
-      setTimeout(() => {
-        rebuildIfWanted();
-        resolve();
-      }),
-    );
+    rebuildIfWanted();
   },
   falling,
 });
 
 const treeSection = renderer.inspector.createParameters("Tree");
 trackFolders(treeSection);
+// The Inspector runs onChange a tick after a change. Picking a theme, a
+// species or a seed sets off more changes, so those run at once, with onChangeNow
 // A theme sets the wood's colours here, the leaves' in their section, and
 // the background and shadows in the lights'. The buttons at the top left pick
 // it here too, so the panel and the address follow them
-const themeControl = treeSection
-  .add({ theme: START_THEME }, "theme", Object.keys(THEMES))
-  .onChange(pickTheme);
+const themeControl = onChangeNow(
+  treeSection.add({ theme: START_THEME }, "theme", Object.keys(THEMES)),
+  pickTheme,
+);
 const themeButtons = createThemeButtons({
   onPick: (name) => themeControl.setValue(name),
 });
 themeButtons.show(START_THEME);
 // The species picks the shape rules; only its own sliders show in the shape
-// folder. The oak splits low into limbs that branch again; the pine is one
-// trunk ringed by whorls of drooping branches; the cypress is a narrow flame
-// of short climbing branches; the willow is a dome of limbs hung with long
-// strands of leaves. The buttons down the left pick it here too, so
-// the panel and the address follow them
+// folder. The buttons down the left pick it here too, so the panel and the
+// address follow them
 const speciesControl = treeSection.add(
   params,
   "species",
@@ -301,7 +304,10 @@ const speciesButtons = createSpeciesButtons({
 // normals are smooth; more sides smooth the edges of the cel bands too. The
 // wireframe shows its vertices, alone
 const shape = treeSection.addFolder("shape");
-const seedControl = shape.add(params, "seed", 1, 9999, 1).onChange(requestRebuild);
+const seedControl = onChangeNow(
+  shape.add(params, "seed", 1, 9999, 1),
+  requestRebuild,
+);
 // Every shape slider, in the panel's order: its range, its step and its
 // name, where those differ from a slider's own. A species shows the ones it
 // lists as its own, and the ones no species lists show for all
@@ -341,27 +347,21 @@ function showSpecies() {
 }
 // The settings a species puts on when it's picked, among those they all
 // share, the way a theme puts on its colours: its own where it gives them,
-// these where it doesn't, which are the oak's. The controls are tied to them
-// once they all exist, further down
-const SPECIES_SETTINGS = {
-  crookedness: 0.5,
-  clumpSize: 1,
-  cardsPerClump: 35,
-  texture: "round cluster",
-  cardSize: 0.92,
-  roundness: 0.58,
-  flutter: 0.25,
-  falling: 277,
-  droop: -1,
-  mainLimbs: 3,
-  size: 5.27,
-  trunkThickness: 0.21,
-  wind: 0.22,
-};
-let speciesSettings = {};
+// the page's starting ones, the oak's, where it doesn't. Each is marked as
+// one with speciesSetting as its control is made
+const speciesSettings = {};
+const startingSettings = {};
+function speciesSetting(key, control) {
+  speciesSettings[key] = control;
+  startingSettings[key] = control.getValue();
+  return control;
+}
+for (const key of ["size", "mainLimbs", "droop", "crookedness", "trunkThickness"]) {
+  speciesSetting(key, shapeControls[key]);
+}
 const speciesDefault = (key) =>
-  SPECIES[params.species].settings[key] ?? SPECIES_SETTINGS[key];
-speciesControl.onChange(() => {
+  SPECIES[params.species].settings[key] ?? startingSettings[key];
+onChangeNow(speciesControl, () => {
   speciesButtons.show(params.species);
   showSpecies();
   for (const [key, control] of Object.entries(speciesSettings)) {
@@ -389,9 +389,9 @@ const woodPickers = addRamp(treeSection.addFolder("colors"), barkColors, [
   "light",
 ]);
 
-// The buttons at the bottom: a new tree, and the
-// tree as a GLB for a plain MeshStandardMaterial (the README has the snippet
-// that puts the cel look back)
+// The buttons at the bottom: a new tree, and the tree as a GLB for a plain
+// MeshStandardMaterial (the README has the snippet that puts the cel look
+// back)
 const bar = createBar({
   onNewTree: regenerate,
   onSave: () =>
@@ -414,34 +414,41 @@ const leafSection = renderer.inspector.createParameters("Leaves");
 // The clumps the cards are scattered over, one on each free branch tip:
 // clump size grows them all, and bigger clumps get more cards
 const clumps = leafSection.addFolder("clumps");
-const clumpSizeControl = clumps
-  .add(params, "clumpSize", 0.3, 3)
-  .name("clump size")
-  .onChange(requestRebuild);
-const cardsPerClumpControl = clumps
-  .add(params, "cardsPerClump", 1, 160, 1)
-  .name("cards per clump")
-  .onChange(requestRebuild);
+speciesSetting(
+  "clumpSize",
+  clumps
+    .add(params, "clumpSize", 0.3, 3)
+    .name("clump size")
+    .onChange(requestRebuild),
+);
+speciesSetting(
+  "cardsPerClump",
+  clumps
+    .add(params, "cardsPerClump", 1, 160, 1)
+    .name("cards per clump")
+    .onChange(requestLeaves),
+);
 debugView(clumps.add(params, "showClumps"))
   .name("show clumps")
   .onChange((v) => (foliage.clumps.visible = v));
 const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
-  .onChange((v) => (foliage.mesh.visible = v && foliage.mesh.count > 0));
-const textureControl = cards
-  .add(params, "leavesTexture", LEAF_TEXTURES)
-  .name("texture")
-  .onChange((name) => {
-    foliage.setLeafTexture(name);
-    falling.setTexture(fallingTexture(name));
-  });
+  .onChange(foliage.setShown);
+speciesSetting(
+  "leafTexture",
+  cards
+    .add(params, "leafTexture", LEAF_TEXTURES)
+    .name("texture")
+    .onChange(setLeafTexture),
+);
 debugView(cards.add(params, "showTexture"))
   .name("show texture")
   .onChange((v) => (foliage.uniforms.textured.value = v ? 1 : 0));
-const cardSizeControl = cards
-  .add(foliage.uniforms.cardSize, "value", 0.1, 3)
-  .name("size");
+speciesSetting(
+  "cardSize",
+  cards.add(foliage.uniforms.cardSize, "value", 0.1, 3).name("size"),
+);
 // How many squares each card is cut into, and how far they wrap round their
 // clump's sphere. Segments only show once roundness bends them
 const SEGMENTS = { "1 × 1": 1, "2 × 2": 2, "3 × 3": 3, "4 × 4": 4 };
@@ -451,9 +458,10 @@ cards
     foliage.setSegments(SEGMENTS[name]);
     countVertices();
   });
-const roundnessControl = cards
-  .add(foliage.uniforms.roundness, "value", 0, 1)
-  .name("roundness");
+speciesSetting(
+  "roundness",
+  cards.add(foliage.uniforms.roundness, "value", 0, 1).name("roundness"),
+);
 const leafShading = leafSection.addFolder("shading");
 leafShading
   .add(foliage.uniforms.shadowSide, "value", 0, 1, 0.005)
@@ -462,7 +470,7 @@ leafShading.add(foliage.uniforms.ao, "value", 0, 1).name("ao");
 leafShading
   .add(params, "aoDistance", 0.25, 6)
   .name("ao distance")
-  .onChange(requestRebuild);
+  .onChange(requestLeaves);
 debugView(
   leafShading.add(params, "normals", ["transferred", "flat card"]),
 ).onChange(
@@ -479,14 +487,16 @@ const leafPickers = addRamp(
 
 const breeze = renderer.inspector.createParameters("Wind");
 breeze.add(wind.direction, "value", -Math.PI, Math.PI).name("direction");
-const windControl = breeze
-  .add(wind.strength, "value", 0, 1)
-  .name("strength");
+speciesSetting(
+  "wind",
+  breeze.add(wind.strength, "value", 0, 1).name("strength"),
+);
 breeze.add(wind.speed, "value", 0, 3).name("speed");
 breeze.add(wind.frequency, "value", 0.05, 1).name("gust size");
-const flutterControl = breeze
-  .add(wind.flutter, "value", 0, 1)
-  .name("leaf flutter");
+speciesSetting(
+  "flutter",
+  breeze.add(wind.flutter, "value", 0, 1).name("leaf flutter"),
+);
 
 // The patch round the tree's foot: its size and blades, how hard the wind
 // blows it, and its shading
@@ -513,9 +523,12 @@ const grassPickers = addRamp(lawn.addFolder("colors"), grass.uniforms.colors, [
 ]);
 
 const fall = renderer.inspector.createParameters("Falling leaves");
-const fallingControl = fall
-  .add(falling.uniforms.amount, "value", 0, falling.MAX_LEAVES, 1)
-  .name("amount");
+speciesSetting(
+  "falling",
+  fall
+    .add(falling.uniforms.amount, "value", 0, falling.MAX_LEAVES, 1)
+    .name("amount"),
+);
 fall.add(falling.uniforms.size, "value", 0.05, 0.8).name("leaf size");
 fall.add(falling.uniforms.fallSpeed, "value", 0.1, 3).name("fall speed");
 fall.add(falling.uniforms.lifetime, "value", 3, 40).name("lifetime");
@@ -557,24 +570,9 @@ toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 // under them all. What a theme sets resets to the theme picked now, not to
 // the one the page opened on, and reset keeps the theme. What a species sets
 // resets to the species picked now, and reset keeps the species too
-speciesSettings = {
-  crookedness: shapeControls.crookedness,
-  clumpSize: clumpSizeControl,
-  cardsPerClump: cardsPerClumpControl,
-  texture: textureControl,
-  cardSize: cardSizeControl,
-  roundness: roundnessControl,
-  flutter: flutterControl,
-  falling: fallingControl,
-  droop: shapeControls.droop,
-  mainLimbs: shapeControls.mainLimbs,
-  size: shapeControls.size,
-  trunkThickness: shapeControls.trunkThickness,
-  wind: windControl,
-};
 // Every control a theme sets, and its value in a theme. The page starts in
 // its first theme
-themeBindings = [
+const themeBindings = [
   ...leafPickers.map((picker, i) => [picker, (theme) => theme.leaves[i]]),
   ...woodPickers.map((picker, i) => [picker, (theme) => theme.wood[i]]),
   ...grassPickers.map((picker, i) => [picker, (theme) => theme.grass[i]]),
@@ -601,8 +599,8 @@ addCopyConfig(renderer.inspector, sections);
 // The address keeps every changed value but the debug views, so a link
 // brings back this tree
 addShareLink(sections, debugControls);
-// Once the address has landed, a theme picked eases in
-setTimeout(() => (themeSeconds = 0.85));
+// Now the address has landed, a theme picked eases in
+themeSeconds = 0.85;
 
 // Every section and folder starts closed, and so does the panel: the
 // Inspector opens it as soon as parameters are added. Its button at the top
@@ -625,11 +623,11 @@ addEventListener("resize", () => {
 // On a dark background, like night's, the buttons' shadows go black so they
 // still stand out
 const themeColor = document.querySelector('meta[name="theme-color"]');
-let pageColor = "";
+let pageColor = -1;
 function matchPage() {
+  if (scene.background.getHex() === pageColor) return;
+  pageColor = scene.background.getHex();
   const color = `#${scene.background.getHexString()}`;
-  if (color === pageColor) return;
-  pageColor = color;
   document.documentElement.style.background = document.body.style.background =
     color;
   themeColor.content = color;

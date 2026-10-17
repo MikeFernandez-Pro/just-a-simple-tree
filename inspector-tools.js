@@ -2,14 +2,16 @@
 // Inspector's Parameters tab. Each section remembers the values its controls
 // start with; reset puts them back through the controls themselves, so every
 // onChange runs as if picked by hand. A control can instead be given where
-// it resets to at the moment, like a colour the theme picked. The page's address always holds every
-// value changed from those, so it can be shared; opening it sets them again,
-// reloading it doesn't.
+// it resets to at the moment, like a colour the theme picked. The page's
+// address always holds every value changed from those, so it can be shared;
+// opening it sets them again, reloading it doesn't.
 // Copy config writes every current value as JSON, by section and folder,
 // under the names shown in the panel
 
 // The Inspector keeps a section's own controls but not its folders: make
-// addFolder remember them. Call before the first folder is added
+// addFolder remember them. It's patched on the class every section shares, so
+// one call, with any section, covers them all; make it before the first
+// folder is added
 export function trackFolders(section) {
   const proto = Object.getPrototypeOf(section)
   if (proto.tracksFolders) return
@@ -22,9 +24,19 @@ export function trackFolders(section) {
   proto.tracksFolders = true
 }
 
+// The Inspector runs a control's onChange a tick after it changes, so that
+// several changes at once land together. This runs fn at once instead, for a
+// control whose change sets off others that should follow it straight away
+export function onChangeNow(control, fn) {
+  control.addEventListener('change', ({ value }) => fn(value))
+  return control
+}
+
 const nameOf = (section) => String(section.paramList.data[0]).trim()
 const labelOf = (subItem) => subItem.data[0].textContent.trim()
 const isButton = ({ object, key }) => typeof object[key] === 'function'
+// A section's or folder's own controls, leaving out its buttons
+const own = (group) => group.objects.filter((entry) => !isButton(entry))
 
 // A control's value as plain data: colours as hex
 function valueOf(editor) {
@@ -34,8 +46,7 @@ function valueOf(editor) {
 
 // Every control of a section and its folders
 function controls(section) {
-  const own = section.objects.filter((entry) => !isButton(entry))
-  return [...own, ...(section.folders ?? []).flatMap(controls)]
+  return [...own(section), ...(section.folders ?? []).flatMap(controls)]
 }
 
 // Folds a section and every folder inside it
@@ -72,7 +83,7 @@ export function addReset(section, resetTo = new Map()) {
 // The section's values, its folders nested inside
 function config(section) {
   const values = {}
-  for (const entry of section.objects) if (!isButton(entry)) values[labelOf(entry.subItem)] = valueOf(entry.editor)
+  for (const { subItem, editor } of own(section)) values[labelOf(subItem)] = valueOf(editor)
   for (const folder of section.folders ?? []) values[nameOf(folder)] = config(folder)
   return values
 }
@@ -90,8 +101,8 @@ const LINK_ICON = svg(
 // Every control of a section and its folders, by its path of names in the
 // panel: "Tree/shape/seed"
 function paths(section, prefix = nameOf(section)) {
-  const own = section.objects.filter((entry) => !isButton(entry)).map(({ editor, subItem }) => [`${prefix}/${labelOf(subItem)}`, editor])
-  return [...own, ...(section.folders ?? []).flatMap((folder) => paths(folder, `${prefix}/${nameOf(folder)}`))]
+  const mine = own(section).map(({ editor, subItem }) => [`${prefix}/${labelOf(subItem)}`, editor])
+  return [...mine, ...(section.folders ?? []).flatMap((folder) => paths(folder, `${prefix}/${nameOf(folder)}`))]
 }
 
 // Numbers rounded, so the address stays short
@@ -123,8 +134,8 @@ export function addShareLink(sections, skip = []) {
 
   // An address's values, when it's opened: a reload, by hand or by the dev
   // server's hot refresh, starts again from the starting values. A choice
-  // like a theme sets other controls once it lands, a tick later, so any it
-  // changed are put back after
+  // like a theme sets other controls as it lands, so they're all set twice:
+  // any it changed are put back
   let wanted = {}
   const reloaded = performance.getEntriesByType('navigation')[0]?.type === 'reload'
   try {
@@ -141,10 +152,8 @@ export function addShareLink(sections, skip = []) {
   // Then the address is written again, so whatever it held that isn't kept,
   // like a debug view, an old name or a value back at its start, goes
   apply()
-  setTimeout(() => {
-    apply()
-    later()
-  })
+  apply()
+  later()
 }
 
 // A button that copies some text, and ticks once copied

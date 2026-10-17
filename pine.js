@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, mulberry32, UP } from './wood.js'
+import { alongBranch, createWood, GOLDEN_ANGLE, heading, mulberry32, UP } from './wood.js'
 
 // Fixed shape rules, tuned for a fir: one straight trunk tapering to a
 // point, ringed by whorls of branches, long at the bottom and short at the
@@ -27,7 +27,6 @@ const CORE_LARGEST = 0.05 // and at most / the height
 const CORES_FROM = 0.45 // how far up the whorls, of them all, the trunk gets clumps
 const LEADER = 0.045 // the lowest clump's radius on the leader, the trunk's bare top / the height
 const LEADER_CLUMPS = 4 // clumps up the leader, shrinking to its tip
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
 // The pine, a tiered cone of flat pads, densely carded, barely fluttering
 export const pine = {
@@ -77,7 +76,7 @@ function grow(params) {
     for (let b = 0; b < params.whorlBranches; b++) {
       const around = ((b + (random() - 0.5) * 0.5) / params.whorlBranches) * Math.PI * 2 + w * GOLDEN_ANGLE
       const rise = THREE.MathUtils.lerp(0.05, 0.6, t) + (random() - 0.5) * 0.2
-      const dir = new THREE.Vector3(Math.cos(around) * Math.cos(rise), Math.sin(rise), Math.sin(around) * Math.cos(rise))
+      const dir = heading(around, rise)
       const length = reach * (0.85 + random() * 0.3)
       const from = at * height
       const shape = wood.branch(point, dir, length, trunkRadius * BRANCH_THICKNESS, params.crookedness * 0.5, {

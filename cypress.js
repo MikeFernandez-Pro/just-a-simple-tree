@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { alongBranch, createWood, mulberry32, UP } from './wood.js'
+import { alongBranch, createWood, GOLDEN_ANGLE, heading, mulberry32, UP } from './wood.js'
 
 // Fixed shape rules, tuned for an Italian cypress: a tall, narrow flame. One
 // straight trunk, with short branches all the way up it climbing steeply
@@ -24,7 +24,6 @@ const DROOP = 0.12 // how far each kink bends a branch down, at droop 1: below 0
 const PAD = 0.6 // a clump's radius / the crown's half width there
 const CORES = 16 // clumps stacked up the trunk, filling the crown's middle
 const SMALLEST = 0.03 // the smallest clump's radius / the height
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
 // The cypress, its branches climbing a little rather than drooping
 export const cypress = {
@@ -77,7 +76,7 @@ function grow(params) {
     const { point, dir: trunkDir, radius: trunkRadius } = alongBranch(trunk, at)
     const around = i * GOLDEN_ANGLE + (random() - 0.5) * 0.4
     const rise = RISE + (random() - 0.5) * 0.2
-    const dir = new THREE.Vector3(Math.cos(around) * Math.cos(rise), Math.sin(rise), Math.sin(around) * Math.cos(rise))
+    const dir = heading(around, rise)
     const length = Math.max((halfWidth(at) / Math.cos(rise)) * (0.8 + random() * 0.3), height * SMALLEST * 2)
     const from = at * height
     const { points } = wood.branch(point, dir, length, trunkRadius * BRANCH_THICKNESS, params.crookedness * 0.4, {

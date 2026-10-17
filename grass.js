@@ -24,15 +24,14 @@ import {
   time,
   uniform,
   varyingProperty,
-  vec2,
   vec3,
   vec4,
   vertexIndex,
 } from 'three/tsl'
 import { mulberry32 } from './wood.js'
-import { celShade, linear, toneMapped, tintShadow } from './shading.js'
+import { ALBEDO, celShade, linear, toneMapped, tintShadow } from './shading.js'
 import { swept } from './transition.js'
-import { blowing, wind } from './wind.js'
+import { blowing, downwind, wind } from './wind.js'
 
 // A small round patch of grass at the foot of the tree, after the grass of
 // the Portfolio2024 island: every blade is a strip built in the vertex shader
@@ -118,7 +117,7 @@ export function createGrass() {
 
   // Lambert, read back through a ramp like the tree's
   const material = new THREE.MeshLambertNodeMaterial({
-    color: new THREE.Color().setRGB(0.8, 0.8, 0.8),
+    color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO),
     side: THREE.DoubleSide,
   })
 
@@ -163,7 +162,6 @@ export function createGrass() {
       // little its own way, and rocks a little. The grass's own strength
       // scales it all
       const blowingGrass = blowing.mul(u.wind)
-      const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
       const drift = vec3(base.x, 0, base.z)
         .mul(wind.frequency.mul(8))
         .sub(downwind.mul(time.mul(wind.speed).mul(2)))

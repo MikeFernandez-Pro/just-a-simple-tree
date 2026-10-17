@@ -28,11 +28,11 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { mulberry32 } from './wood.js'
-import { celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
+import { GOLDEN_ANGLE, mulberry32, SIDE, UP } from './wood.js'
+import { ALBEDO, celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
-import { flutter, liftBelow, sway, wind } from './wind.js'
+import { downwind, flutter, liftBelow, sway } from './wind.js'
 
 // Anime foliage after trungduyng's Blender pipeline: leaf cards scattered
 // over each leaf clump, each showing a whole cluster of leaves, lit with the
@@ -53,9 +53,9 @@ const AO_NEIGHBOURS = 24
 // the ray inside one, so a ray straight through a clump keeps 10% of it and
 // a card just inside a neighbour's edge keeps nearly all
 const LEAF_DENSITY = -Math.log(0.1) / 2 // per clump radius travelled
-const ALBEDO = 0.8 // the tutorial's Diffuse BSDF's
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
-const UP = new THREE.Vector3(0, 1, 0)
+const AO_BOOST = 1.45 // the tutorial's AO's last factor: open leaves come out brighter
+// Where each of the tutorial's four leaf colours starts, from core to light
+export const LEAF_STOPS = [0, 0.04545, 0.49773, 0.95455]
 
 export function createFoliage() {
   // Per card: centre and size; the clump's normal there and the card's AO;
@@ -136,7 +136,6 @@ export function createFoliage() {
     const jitter = hash(instanceIndex.add(5))
     const size = grownLeaf(e.x, jitter)
     const card = mix(flat, wrapped, u.roundness).sub(center)
-    const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
     const outwards = normalize(center.sub(u.crownCenter))
     const blown = outwards
       .mul(1.5)
@@ -158,10 +157,9 @@ export function createFoliage() {
   }
 
   // Alpha: the leaf cluster, clipped hard, in the shadow too. The texture
-  // is a 2 x 2 atlas of four clusters, one picked per card
-  const variant = floor(hash(instanceIndex.add(7919)).mul(4))
-  const cell = vec2(variant.mod(2), floor(variant.div(2)))
-  const leaves = texture(leafTexture('pointed cluster'), uv().add(cell).mul(0.5))
+  // is a 2 x 2 atlas of four clusters, one picked per card; none until one
+  // is picked
+  const leaves = texture(new THREE.Texture(), atlasUV())
   const opacity = mix(float(1), leaves.r, u.textured)
   material.opacityNode = opacity
   material.alphaTest = 0.5
@@ -176,26 +174,20 @@ export function createFoliage() {
 
   // Colour: the lit value through the tutorial's four colours, at its band
   // edges, hard-edged
-  let color = celShade([
-    [0, core],
-    [0.04545, shadow],
-    [0.49773, mid],
-    [0.95455, light],
-  ])
+  let color = celShade(LEAF_STOPS.map((at, i) => [at, [core, shadow, mid, light][i]]))
 
   // The tutorial's gradient: an easing ramp tied to the light, full on the
   // sun's side of the tree and falling to nothing across the far two thirds,
   // multiplied in
   const side = dot(center.sub(u.crownCenter).div(u.crownSize), sunDirection).clamp(-1, 1)
-  const t = side.add(1).mul(0.75).clamp(0, 1)
-  const gradient = t.mul(t).mul(float(3).sub(t.mul(2)))
+  const gradient = side.add(1).mul(0.75).smoothstep(0, 1)
   color = color.mul(mix(float(1), gradient, u.shadowSide))
 
   // The tutorial's AO: raised to the power 2.7, times 7.6 clamped to 1, times
-  // 1.45, multiplied in. Open leaves come out brighter, buried ones darker.
+  // AO_BOOST, multiplied in. Open leaves come out brighter, buried ones darker.
   // Both are per card, so each card stays one flat colour while the crown falls
   // off smoothly from the sun's side
-  const aoTerm = min(pow(b.w, 2.7).mul(7.6), 1).mul(1.45)
+  const aoTerm = min(pow(b.w, 2.7).mul(7.6), 1).mul(AO_BOOST)
   color = color.mul(mix(float(1), aoTerm, u.ao))
 
   material.outputNode = vec4(mix(toneMapped(color), normal.mul(0.5).add(0.5), u.showNormals), output.a)
@@ -209,14 +201,30 @@ export function createFoliage() {
   mesh.castShadow = true
   mesh.receiveShadow = true
   mesh.count = 0
+  // Shown when asked to be and there are cards to show
+  let shown = true
+  const showIfAny = () => (mesh.visible = shown && mesh.count > 0)
+  function setShown(value) {
+    shown = value
+    showIfAny()
+  }
 
-  // Scatter cards evenly over every clump's surface, and work out their AO
-  function update(clumps, params) {
+  // Scatter cards evenly over every clump's surface, and work out their AO.
+  // A clump not flattened has a flatten of 1, one that hangs knows it, and
+  // each knows how far it reaches, its radius stretched upright by it
+  function update(grownClumps, params) {
+    const clumps = grownClumps.map(({ flatten = 1, ...clump }) => ({
+      ...clump,
+      flatten,
+      hanging: clump.hangFrom !== undefined,
+      bound: clump.radius * Math.max(flatten, 1),
+    }))
     const random = mulberry32(params.seed + 104729)
     const box = new THREE.Box3()
+    const corner = new THREE.Vector3()
     for (const { position, radius } of clumps) {
-      box.expandByPoint(position.clone().addScalar(radius))
-      box.expandByPoint(position.clone().addScalar(-radius))
+      box.expandByPoint(corner.copy(position).addScalar(radius))
+      box.expandByPoint(corner.copy(position).addScalar(-radius))
     }
     box.getCenter(u.crownCenter.value)
     box.getSize(u.crownSize.value).multiplyScalar(0.5).max(new THREE.Vector3(1e-3, 1e-3, 1e-3))
@@ -226,27 +234,35 @@ export function createFoliage() {
     const meanArea = clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(clumps.length, 1)
 
     // Only clumps within reach can occlude a card, and only the nearest of
-    // those are looked at: by the gap between their surfaces. The nearest
-    // are kept in order as they're found, a tie going to the one found first
+    // those are looked at: by the gap between their surfaces. Each pair is
+    // measured once, for both. Each clump keeps its nearest in order as
+    // they're offered, which is by index, a tie going to the one offered first
     const reach = params.aoDistance
-    const near = clumps.map((c, i) => {
-      const nearest = []
-      const gaps = []
-      clumps.forEach((o, j) => {
-        const gap = o.position.distanceTo(c.position) - c.radius - o.radius
-        if (j === i || gap >= c.radius * 0.05 + reach) return
-        const full = nearest.length === AO_NEIGHBOURS
-        if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
-        let k = full ? AO_NEIGHBOURS - 1 : nearest.length
-        for (; k > 0 && gaps[k - 1] > gap; k--) {
-          gaps[k] = gaps[k - 1]
-          nearest[k] = nearest[k - 1]
-        }
-        gaps[k] = gap
-        nearest[k] = o
-      })
-      return nearest
-    })
+    const near = clumps.map(() => [])
+    const nearGaps = clumps.map(() => [])
+    function offer(i, o, gap) {
+      if (gap >= clumps[i].radius * 0.05 + reach) return
+      const nearest = near[i]
+      const gaps = nearGaps[i]
+      const full = nearest.length === AO_NEIGHBOURS
+      if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
+      let k = full ? AO_NEIGHBOURS - 1 : nearest.length
+      for (; k > 0 && gaps[k - 1] > gap; k--) {
+        gaps[k] = gaps[k - 1]
+        nearest[k] = nearest[k - 1]
+      }
+      gaps[k] = gap
+      nearest[k] = o
+    }
+    for (let i = 0; i < clumps.length; i++) {
+      const c = clumps[i]
+      for (let j = i + 1; j < clumps.length; j++) {
+        const o = clumps[j]
+        const distance = o.position.distanceTo(c.position)
+        offer(i, o, distance - c.radius - o.radius)
+        offer(j, c, distance - o.radius - c.radius)
+      }
+    }
 
     const A = cardA.array
     const B = cardB.array
@@ -259,17 +275,18 @@ export function createFoliage() {
     const lean = new THREE.Vector3()
     const ray = new THREE.Vector3()
     const p = new THREE.Vector3()
+    const euler = new THREE.Euler()
+    const blocking = []
     let n = 0
     // A clump may be flattened, squashed upright into a pad: its cards lie
     // on the squashed surface and take its normals, so a pad lights like one
     // on its top and darkens under it. Above 1 it's stretched upright
     // instead. One that hangs, from the height hangFrom, turns its cards so
     // their leaves point down, and swings in the wind from there
-    clumps.forEach(({ position, radius, flatten = 1, hangFrom }, c) => {
-      const hanging = hangFrom !== undefined
+    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth }, c) => {
       const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
       // Turn each clump's pattern randomly, so no two clumps line up
-      turn.setFromEuler(new THREE.Euler(random() * 6.28, random() * 6.28, random() * 6.28))
+      turn.setFromEuler(euler.set(random() * 6.28, random() * 6.28, random() * 6.28))
       for (let i = 0; i < cards && n < CAPACITY; i++, n++) {
         const y = 1 - (2 * (i + 0.5)) / cards
         const ring = Math.sqrt(1 - y * y)
@@ -287,11 +304,11 @@ export function createFoliage() {
         // AO: how much light gets in along rays round the normal, within
         // reach. A clump wholly behind the card or out of reach stops none
         // of them, so it's left out before they're cast
-        const blocking = near[c].filter((o) => {
-          const bound = o.radius * Math.max(o.flatten ?? 1, 1)
+        blocking.length = 0
+        for (const o of near[c]) {
           ray.subVectors(o.position, p)
-          return ray.dot(normal) > -bound && ray.length() - bound < reach
-        })
+          if (ray.dot(normal) > -o.bound && ray.length() - o.bound < reach) blocking.push(o)
+        }
         toNormal.setFromUnitVectors(UP, normal)
         let open = 0
         for (const hemisphere of AO_DIRECTIONS) {
@@ -305,12 +322,13 @@ export function createFoliage() {
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, spin(lean, random(), hanging)], n * 4)
         D.set([position.x, position.y, position.z, radius], n * 4)
-        cardE.array.set([clumps[c].birth, liftBelow(hangFrom, p.y)], n * 2)
+        cardE.array.set([birth, liftBelow(hangFrom, p.y)], n * 2)
       }
     })
-    for (const attribute of cardAttributes) attribute.needsUpdate = true
+    // Only the cards in use go to the GPU
+    if (n > 0) for (const attribute of cardAttributes) uploadFirst(attribute, n)
     mesh.count = n
-    mesh.visible = n > 0
+    showIfAny()
     clumpView.update(clumps)
   }
 
@@ -336,7 +354,7 @@ export function createFoliage() {
     const uvs = new Float32Array(count * corners * 2)
     const colors = new Float32Array(count * corners * 3)
     const index = []
-    const shadeScale = THREE.MathUtils.lerp(1, 1.45, u.ao.value)
+    const shadeScale = THREE.MathUtils.lerp(1, AO_BOOST, u.ao.value)
 
     const [A, B, C, D] = [cardA.array, cardB.array, cardC.array, cardD.array]
     const center = new THREE.Vector3()
@@ -359,18 +377,16 @@ export function createFoliage() {
       normal.fromArray(B, n * 4).lerp(facing, u.flatNormals.value).normalize()
       const spin = C[n * 4 + 3]
       const size = A[n * 4 + 3] * u.cardSize.value
-      const helper = Math.abs(facing.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
-      across.crossVectors(helper, facing).normalize()
-      along.crossVectors(facing, across)
+      cardAxes(facing, across, along)
       tangent.copy(across).multiplyScalar(Math.cos(spin)).addScaledVector(along, Math.sin(spin))
       bitangent.crossVectors(facing, tangent)
       const distance = center.distanceTo(clump)
 
       // The tutorial's gradient and AO, as the shader works them out
       side.subVectors(center, u.crownCenter.value).divide(u.crownSize.value)
-      const t = THREE.MathUtils.clamp((THREE.MathUtils.clamp(side.dot(sunDirection.value), -1, 1) + 1) * 0.75, 0, 1)
-      const gradient = t * t * (3 - 2 * t)
-      const aoTerm = Math.min(B[n * 4 + 3] ** 2.7 * 7.6, 1) * 1.45
+      const towardsSun = THREE.MathUtils.clamp(side.dot(sunDirection.value), -1, 1)
+      const gradient = THREE.MathUtils.smoothstep((towardsSun + 1) * 0.75, 0, 1)
+      const aoTerm = Math.min(B[n * 4 + 3] ** 2.7 * 7.6, 1) * AO_BOOST
       const shade =
         (THREE.MathUtils.lerp(1, gradient, u.shadowSide.value) * THREE.MathUtils.lerp(1, aoTerm, u.ao.value)) / shadeScale
 
@@ -420,6 +436,7 @@ export function createFoliage() {
     clumps: clumpView.mesh,
     uniforms,
     update,
+    setShown,
     setLeafTexture,
     setSegments,
     bake,
@@ -448,15 +465,36 @@ function createClumpView() {
   function update(clumps) {
     mesh.count = Math.min(clumps.length, MAX_CLUMPS)
     for (let i = 0; i < mesh.count; i++) {
-      const { position, radius, flatten = 1, hangFrom } = clumps[i]
+      const { position, radius, flatten, hangFrom } = clumps[i]
       sphere.array.set([position.x, position.y, position.z, radius], i * 4)
       shape.array.set([flatten, liftBelow(hangFrom, position.y)], i * 2)
     }
-    sphere.needsUpdate = true
-    shape.needsUpdate = true
+    if (mesh.count > 0) for (const attribute of [sphere, shape]) uploadFirst(attribute, mesh.count)
   }
 
   return { mesh, update }
+}
+
+// Send only an attribute's first count instances to the GPU on its next
+// upload, not the whole buffer
+function uploadFirst(attribute, count) {
+  attribute.clearUpdateRanges()
+  attribute.addUpdateRange(0, count * attribute.itemSize)
+  attribute.needsUpdate = true
+}
+
+// The two axes in a card's plane before its spin, from its facing, into
+// across and along: the shader's frame, worked out the same way
+function cardAxes(facing, across, along) {
+  across.crossVectors(Math.abs(facing.y) < 0.99 ? UP : SIDE, facing).normalize()
+  along.crossVectors(facing, across)
+}
+
+// A card's or falling leaf's cell of its 2 x 2 atlas: one of the four,
+// picked at random per instance
+export function atlasUV() {
+  const variant = floor(hash(instanceIndex.add(7919)).mul(4))
+  return uv().add(vec2(variant.mod(2), floor(variant.div(2)))).mul(0.5)
 }
 
 // A card's spin round its facing, from a random number: any way round, or
@@ -464,11 +502,11 @@ function createClumpView() {
 // near straight down as the card's tilt lets it, give or take a little. The
 // frame is the shader's
 const HANG_JITTER = 0.5 // radians either way
+const across = new THREE.Vector3()
+const along = new THREE.Vector3()
 function spin(facing, random, hanging) {
   if (!hanging) return random * Math.PI * 2
-  const helper = Math.abs(facing.y) < 0.99 ? UP : new THREE.Vector3(1, 0, 0)
-  const across = new THREE.Vector3().crossVectors(helper, facing).normalize()
-  const along = new THREE.Vector3().crossVectors(facing, across)
+  cardAxes(facing, across, along)
   return Math.atan2(-along.y, -across.y) + (random - 0.5) * 2 * HANG_JITTER
 }
 
@@ -482,7 +520,7 @@ const AO_DIRECTIONS = Array.from({ length: AO_RAYS }, (_, i) => {
 // How far a ray from origin along dir, out to reach, runs inside the
 // clump: a sphere, squashed upright by flatten. Unsquashing the ray's y turns
 // it into a sphere test, along the ray's own length
-function chord(origin, dir, center, radius, reach, flatten = 1) {
+function chord(origin, dir, center, radius, reach, flatten) {
   const x = center.x - origin.x
   const y = (center.y - origin.y) / flatten
   const z = center.z - origin.z
@@ -518,8 +556,9 @@ function willow(ctx, length) {
 
 // An oak leaf: narrow at the base, widest past the middle, with rounded
 // lobes down each side
-function oak(ctx, length, lobes = 4) {
-  const width = (t) => length * 0.5 * Math.sin(Math.PI * t) ** 0.7 * (0.6 + 0.4 * Math.abs(Math.sin(lobes * Math.PI * t)))
+const LOBES = 3 // down each side
+function oak(ctx, length) {
+  const width = (t) => length * 0.5 * Math.sin(Math.PI * t) ** 0.7 * (0.6 + 0.4 * Math.abs(Math.sin(LOBES * Math.PI * t)))
   ctx.moveTo(-length, 0)
   for (let i = 1; i <= 40; i++) ctx.lineTo(-length + (2 * length * i) / 40, -width(i / 40))
   for (let i = 39; i >= 0; i--) ctx.lineTo(-length + (2 * length * i) / 40, width(i / 40))
@@ -554,7 +593,7 @@ function sprig(ctx, length) {
 const LEAVES = {
   'pointed cluster': (ctx, random) => cluster(ctx, random, pointed, 34, 13, 21),
   'round cluster': (ctx, random) => cluster(ctx, random, round, 30, 12, 18),
-  'oak cluster': (ctx, random) => cluster(ctx, random, (c, l) => oak(c, l, 3), 26, 16, 24),
+  'oak cluster': (ctx, random) => cluster(ctx, random, oak, 26, 16, 24),
   'pine needles': (ctx, random) => cluster(ctx, random, sprig, 16, 34, 52),
   'willow leaves': (ctx, random) => cluster(ctx, random, willow, 18, 40, 58, 0.7),
 }
@@ -563,7 +602,7 @@ export const LEAF_TEXTURES = Object.keys(LEAVES)
 
 // A leaf texture, painted once
 const textures = {}
-export function leafTexture(name) {
+function leafTexture(name) {
   textures[name] ??= paintLeaves(name)
   return textures[name]
 }
@@ -573,7 +612,7 @@ export function leafTexture(name) {
 const ONE_OF = {
   'pointed cluster': pointed,
   'round cluster': round,
-  'oak cluster': (ctx, length) => oak(ctx, length, 3),
+  'oak cluster': oak,
   'pine needles': (ctx, length) => sprig(ctx, length * 0.8),
   'willow leaves': willow,
 }
@@ -586,36 +625,32 @@ export function fallingTexture(name) {
 
 // Four of one leaf in a 2 x 2 atlas, each filling its cell, turned a little
 function paintOne(shape) {
-  const canvas = document.createElement('canvas')
-  canvas.width = canvas.height = 512
-  const ctx = canvas.getContext('2d')
-  ctx.fillStyle = '#000'
-  ctx.fillRect(0, 0, 512, 512)
-  ctx.fillStyle = '#fff'
-  const random = mulberry32(7)
-  for (let v = 0; v < 4; v++) {
-    ctx.save()
-    ctx.translate((v % 2) * 256 + 128, Math.floor(v / 2) * 256 + 128)
+  return paintAtlas(7, (ctx, random) => {
+    ctx.fillStyle = '#fff'
     ctx.rotate((random() - 0.5) * 0.8 - Math.PI / 4)
     ctx.beginPath()
     shape(ctx, 100 + random() * 15)
     ctx.fill()
-    ctx.restore()
-  }
-  return new THREE.CanvasTexture(canvas)
+  })
 }
 
 function paintLeaves(name) {
+  return paintAtlas(42, LEAVES[name])
+}
+
+// A 2 x 2 atlas of 256-pixel cells on black, each painted round its centre
+// by paintCell, with a random of its own seed
+function paintAtlas(seed, paintCell) {
   const canvas = document.createElement('canvas')
   canvas.width = canvas.height = 512
   const ctx = canvas.getContext('2d')
   ctx.fillStyle = '#000'
   ctx.fillRect(0, 0, 512, 512)
-  const random = mulberry32(42)
+  const random = mulberry32(seed)
   for (let v = 0; v < 4; v++) {
     ctx.save()
     ctx.translate((v % 2) * 256 + 128, Math.floor(v / 2) * 256 + 128)
-    LEAVES[name](ctx, random)
+    paintCell(ctx, random)
     ctx.restore()
   }
   return new THREE.CanvasTexture(canvas)
