@@ -1,8 +1,7 @@
-// How many vertices save .glb would write, the trunk's (all the wood) and
-// the leaves', and under a rule both together, on a small white card in the
-// bottom left corner, outlined and shadowed like the bar's buttons so it
-// reads on any background and theme. On a small screen it sits above the
-// bar instead
+// How many vertices save .glb would write, the wood's and the leaves', and
+// under a rule both together, on a small white card in the bottom left
+// corner, outlined and shadowed like the bar's buttons so it reads on any
+// background and theme. On a small screen it sits above the bar instead
 
 const LINE = '#46434d' // the outline, as in the bar
 const INK = '#2b2a30' // the numbers
@@ -43,17 +42,17 @@ export function createVertexCount() {
     card.append(name, value)
     return value
   }
-  const trunk = row('trunk')
+  const wood = row('wood')
   const leaves = row('leaves')
   card.append(document.createElement('hr'))
   const total = row('total:')
   total.previousSibling.className = 'total'
   document.body.appendChild(card)
 
-  function show(trunkCount, leafCount) {
-    trunk.textContent = trunkCount.toLocaleString('en-US')
+  function show(woodCount, leafCount) {
+    wood.textContent = woodCount.toLocaleString('en-US')
     leaves.textContent = leafCount.toLocaleString('en-US')
-    total.textContent = (trunkCount + leafCount).toLocaleString('en-US')
+    total.textContent = (woodCount + leafCount).toLocaleString('en-US')
   }
 
   return { show }

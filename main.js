@@ -274,26 +274,17 @@ function addRamp(folder, uniforms, names) {
     folder.addColor(uniform, "value").name(names[i]),
   );
 }
-// The scene starts in its first theme
-const startTheme = THEMES[START_THEME];
-startTheme.leaves.forEach((hex, i) =>
-  foliage.uniforms.colors[i].value.set(hex),
-);
-startTheme.trunk.forEach((hex, i) => barkColors[i].value.set(hex));
-startTheme.grass.forEach((hex, i) => grass.uniforms.colors[i].value.set(hex));
-shadowColor.value.set(startTheme.shadow.color);
-shadowDarkness.value = startTheme.shadow.darkness;
-
 // A theme picked from the panel or a button sweeps in from the bottom left
 // (transition.js), and the camera shakes a little as it does, a gust blows
 // through the tree and knocks a handful of leaves off it. Picks stack:
 // each sends its own sweep after the ones still going. The panel's controls
-// take the theme at once, so they show it and the address keeps it. While
-// the page opens, a theme from its address lands at once
+// take the theme at once, through what it binds, so they show it and the
+// address keeps it. While the page opens, a theme lands at once: the first
+// one, then one from its address
 let themeSeconds = 0;
 let themeName = START_THEME;
+let themeBindings = [];
 function pickTheme(name) {
-  const theme = THEMES[name];
   themeName = name;
   themeButtons.show(name);
   if (themeSeconds) {
@@ -301,12 +292,9 @@ function pickTheme(name) {
     shakeFrom = performance.now();
     falling.shake();
   }
-  theme.leaves.forEach((hex, i) => leafPickers[i].setValue(hex));
-  theme.trunk.forEach((hex, i) => trunkPickers[i].setValue(hex));
-  theme.grass.forEach((hex, i) => grassPickers[i].setValue(hex));
-  backgroundPicker.setValue(theme.background);
-  shadowColorPicker.setValue(theme.shadow.color);
-  darknessControl.setValue(theme.shadow.darkness);
+  for (const [control, value] of themeBindings) {
+    control.setValue(value(THEMES[name]));
+  }
 }
 
 // The shake: the camera jitters round where it is, a few centimetres and a
@@ -379,7 +367,7 @@ const { regenerate } = createRegenerate({
 
 const treeSection = renderer.inspector.createParameters("Tree");
 trackFolders(treeSection);
-// A theme sets the trunk's colours here, the leaves' in their section, and
+// A theme sets the wood's colours here, the leaves' in their section, and
 // the background and shadows in the lights'. The buttons at the top left pick
 // it here too, so the panel and the address follow them
 const themeControl = treeSection
@@ -491,7 +479,7 @@ debugView(shape.add(params, "wireframe")).onChange((v) => {
   wireframe.visible = v;
   tree.visible = !v;
 });
-const trunkPickers = addRamp(treeSection.addFolder("colors"), barkColors, [
+const woodPickers = addRamp(treeSection.addFolder("colors"), barkColors, [
   "shadow",
   "mid",
   "light",
@@ -680,8 +668,18 @@ speciesSettings = {
   trunkThickness: shapeControls.trunkThickness,
   wind: windControl,
 };
+// Every control a theme sets, and its value in a theme. The page starts in
+// its first theme
+themeBindings = [
+  ...leafPickers.map((picker, i) => [picker, (theme) => theme.leaves[i]]),
+  ...woodPickers.map((picker, i) => [picker, (theme) => theme.wood[i]]),
+  ...grassPickers.map((picker, i) => [picker, (theme) => theme.grass[i]]),
+  [backgroundPicker, (theme) => theme.background],
+  [shadowColorPicker, (theme) => theme.shadow.color],
+  [darknessControl, (theme) => theme.shadow.darkness],
+];
+pickTheme(START_THEME);
 const sections = [treeSection, leafSection, breeze, lawn, fall, light];
-const theme = () => THEMES[themeName];
 const themed = new Map([
   [themeControl, () => themeName],
   [speciesControl, () => params.species],
@@ -689,12 +687,10 @@ const themed = new Map([
     control,
     () => speciesDefault(key),
   ]),
-  ...leafPickers.map((picker, i) => [picker, () => theme().leaves[i]]),
-  ...trunkPickers.map((picker, i) => [picker, () => theme().trunk[i]]),
-  ...grassPickers.map((picker, i) => [picker, () => theme().grass[i]]),
-  [backgroundPicker, () => theme().background],
-  [shadowColorPicker, () => theme().shadow.color],
-  [darknessControl, () => theme().shadow.darkness],
+  ...themeBindings.map(([control, value]) => [
+    control,
+    () => value(THEMES[themeName]),
+  ]),
 ]);
 sections.forEach((section) => addReset(section, themed));
 addCopyConfig(renderer.inspector, sections);

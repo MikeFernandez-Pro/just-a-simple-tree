@@ -79,7 +79,7 @@ sets them all again.
 
 **save .glb** at the bottom saves the tree as it stands, with no
 wind. The card in the bottom left corner counts the vertices it will hold,
-the trunk's (all the wood), the leaves' and their total, as the tree changes. The GLB works with a plain `MeshStandardMaterial` in any viewer or engine. It
+the wood's, the leaves' and their total, as the tree changes. The GLB works with a plain `MeshStandardMaterial` in any viewer or engine. It
 holds two meshes:
 
 - **`wood`**: the branches, with smooth normals.
