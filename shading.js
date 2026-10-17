@@ -2,6 +2,7 @@ import * as THREE from 'three/webgpu'
 import {
   acesFilmicToneMapping,
   agxToneMapping,
+  attribute,
   cineonToneMapping,
   float,
   linearToneMapping,
@@ -135,9 +136,9 @@ export function barkMaterial() {
     [1, light],
   ])
   // The wood grows from the ground, and sways with the wind, more towards
-  // the top
+  // the top, and more down what hangs
   const grown = grownWood()
-  material.positionNode = grown.add(sway(grown))
+  material.positionNode = grown.add(sway(grown, attribute('swayLift', 'float')))
   // The shadow map draws the wood's own faces, not its back ones (the
   // renderer's default), so its shadow sits where the wood is
   material.shadowSide = THREE.FrontSide

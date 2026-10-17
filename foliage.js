@@ -60,12 +60,13 @@ const UP = new THREE.Vector3(0, 1, 0)
 export function createFoliage() {
   // Per card: centre and size; the clump's normal there and the card's AO;
   // the card's own facing and its spin round it; its clump's centre and radius;
-  // how far along the wood from the ground its clump is
+  // how far along the wood from the ground its clump is, and how far below
+  // where it hangs from the card is
   const cardA = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardB = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardC = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardD = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-  const cardE = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY), 1)
+  const cardE = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 2), 2)
   const cardAttributes = [cardA, cardB, cardC, cardD, cardE]
   for (const attribute of cardAttributes) attribute.setUsage(THREE.DynamicDrawUsage)
 
@@ -96,6 +97,7 @@ export function createFoliage() {
   const b = instancedBufferAttribute(cardB)
   const c = instancedBufferAttribute(cardC)
   const d = instancedBufferAttribute(cardD)
+  const e = instancedBufferAttribute(cardE)
   const center = a.xyz
 
   // Lambert under the sun is the tutorial's Diffuse + Shader to RGB, shadows
@@ -132,7 +134,7 @@ export function createFoliage() {
     // A new tree: the card pops in once its branch has grown there, and a
     // burst blows it away downwind, tumbling and shrinking as it goes
     const jitter = hash(instanceIndex.add(5))
-    const size = grownLeaf(instancedBufferAttribute(cardE), jitter)
+    const size = grownLeaf(e.x, jitter)
     const card = mix(flat, wrapped, u.roundness).sub(center)
     const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
     const outwards = normalize(center.sub(u.crownCenter))
@@ -144,7 +146,7 @@ export function createFoliage() {
     const tumbled = rotate(card, vec3(burst.mul(jitter.mul(12)), burst.mul(7), 0))
     const left = float(1).sub(burst.remap(0.6, 1).clamp(0, 1))
     const placed = clump.add(center.sub(clump).mul(size))
-    return placed.add(blown).add(tumbled.mul(size.mul(left))).add(sway(center))
+    return placed.add(blown).add(tumbled.mul(size.mul(left))).add(sway(center, e.y))
   })()
 
   // How many squares a card is cut into; they only show once roundness
@@ -224,15 +226,27 @@ export function createFoliage() {
     const meanArea = clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(clumps.length, 1)
 
     // Only clumps within reach can occlude a card, and only the nearest of
-    // those are looked at: by the gap between their surfaces
+    // those are looked at: by the gap between their surfaces. The nearest
+    // are kept in order as they're found, a tie going to the one found first
     const reach = params.aoDistance
-    const gap = (c, o) => o.position.distanceTo(c.position) - c.radius - o.radius
-    const near = clumps.map((c, i) =>
-      clumps
-        .filter((o, j) => j !== i && gap(c, o) < c.radius * 0.05 + reach)
-        .sort((a, b) => gap(c, a) - gap(c, b))
-        .slice(0, AO_NEIGHBOURS),
-    )
+    const near = clumps.map((c, i) => {
+      const nearest = []
+      const gaps = []
+      clumps.forEach((o, j) => {
+        const gap = o.position.distanceTo(c.position) - c.radius - o.radius
+        if (j === i || gap >= c.radius * 0.05 + reach) return
+        const full = nearest.length === AO_NEIGHBOURS
+        if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
+        let k = full ? AO_NEIGHBOURS - 1 : nearest.length
+        for (; k > 0 && gaps[k - 1] > gap; k--) {
+          gaps[k] = gaps[k - 1]
+          nearest[k] = nearest[k - 1]
+        }
+        gaps[k] = gap
+        nearest[k] = o
+      })
+      return nearest
+    })
 
     const A = cardA.array
     const B = cardB.array
@@ -248,8 +262,11 @@ export function createFoliage() {
     let n = 0
     // A clump may be flattened, squashed upright into a pad: its cards lie
     // on the squashed surface and take its normals, so a pad lights like one
-    // on its top and darkens under it
-    clumps.forEach(({ position, radius, flatten = 1 }, c) => {
+    // on its top and darkens under it. Above 1 it's stretched upright
+    // instead. One that hangs, from the height hangFrom, turns its cards so
+    // their leaves point down, and swings in the wind from there
+    clumps.forEach(({ position, radius, flatten = 1, hangFrom }, c) => {
+      const hanging = hangFrom !== undefined
       const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
       // Turn each clump's pattern randomly, so no two clumps line up
       turn.setFromEuler(new THREE.Euler(random() * 6.28, random() * 6.28, random() * 6.28))
@@ -267,21 +284,28 @@ export function createFoliage() {
         // The card lies on the clump, leaning a little off it
         lean.randomDirection().multiplyScalar(TILT * random()).add(normal).normalize()
 
-        // AO: how much light gets in along rays round the normal, within reach
+        // AO: how much light gets in along rays round the normal, within
+        // reach. A clump wholly behind the card or out of reach stops none
+        // of them, so it's left out before they're cast
+        const blocking = near[c].filter((o) => {
+          const bound = o.radius * Math.max(o.flatten ?? 1, 1)
+          ray.subVectors(o.position, p)
+          return ray.dot(normal) > -bound && ray.length() - bound < reach
+        })
         toNormal.setFromUnitVectors(UP, normal)
         let open = 0
         for (const hemisphere of AO_DIRECTIONS) {
           ray.copy(hemisphere).applyQuaternion(toNormal)
           let through = 0
-          for (const o of near[c]) through += chord(p, ray, o.position, o.radius, reach, o.flatten) / o.radius
+          for (const o of blocking) through += chord(p, ray, o.position, o.radius, reach, o.flatten) / o.radius
           open += Math.exp(-LEAF_DENSITY * through)
         }
 
         A.set([p.x, p.y, p.z, CARD_RATIO * radius * (0.8 + random() * 0.4)], n * 4)
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
-        C.set([lean.x, lean.y, lean.z, random() * Math.PI * 2], n * 4)
+        C.set([lean.x, lean.y, lean.z, spin(lean, random(), hanging)], n * 4)
         D.set([position.x, position.y, position.z, radius], n * 4)
-        cardE.array[n] = clumps[c].birth
+        cardE.array.set([clumps[c].birth, hanging ? Math.max(hangFrom - p.y, 0) : 0], n * 2)
       }
     })
     for (const attribute of cardAttributes) attribute.needsUpdate = true
@@ -382,7 +406,25 @@ export function createFoliage() {
     return { geometry, shadeScale, texture: brushTexture.value }
   }
 
-  return { mesh, uniforms, update, setBrush, setSegments, bake }
+  // How many vertices bake gives: every card's own, none shared
+  function bakedVertices() {
+    return mesh.count * cards[segments].attributes.position.count
+  }
+
+  return { mesh, uniforms, update, setBrush, setSegments, bake, bakedVertices }
+}
+
+// A card's spin round its facing, from a random number: any way round, or
+// for a hanging clump, its texture's x axis, the way its leaves point, as
+// near straight down as the card's tilt lets it, give or take a little. The
+// frame is the shader's
+const HANG_JITTER = 0.5 // radians either way
+function spin(facing, random, hanging) {
+  if (!hanging) return random * Math.PI * 2
+  const helper = Math.abs(facing.y) < 0.99 ? UP : new THREE.Vector3(1, 0, 0)
+  const across = new THREE.Vector3().crossVectors(helper, facing).normalize()
+  const along = new THREE.Vector3().crossVectors(facing, across)
+  return Math.atan2(-along.y, -across.y) + (random - 0.5) * 2 * HANG_JITTER
 }
 
 // Cosine-weighted directions round +Y, spread evenly
@@ -422,6 +464,13 @@ function round(ctx, length) {
   ctx.ellipse(0, 0, length, length * 0.7, 0, 0, Math.PI * 2)
 }
 
+// A willow leaf: long and narrow, tapering to a point at both ends
+function willow(ctx, length) {
+  ctx.moveTo(-length, 0)
+  ctx.quadraticCurveTo(-length * 0.2, -length * 0.26, length, 0)
+  ctx.quadraticCurveTo(-length * 0.2, length * 0.26, -length, 0)
+}
+
 // An oak leaf: narrow at the base, widest past the middle, with rounded
 // lobes down each side
 function oak(ctx, length, lobes = 4) {
@@ -455,12 +504,14 @@ function sprig(ctx, length) {
 
 // Textures, each four variations in a 2 x 2 atlas of 256-pixel cells,
 // white leaves on black: clusters of a few dozen small leaves, thicker
-// towards the middle
+// towards the middle. The willow's all hang one way, along x, so a
+// hanging clump can point them down
 const LEAVES = {
   'pointed cluster': (ctx, random) => cluster(ctx, random, pointed, 34, 13, 21),
   'round cluster': (ctx, random) => cluster(ctx, random, round, 30, 12, 18),
   'oak cluster': (ctx, random) => cluster(ctx, random, (c, l) => oak(c, l, 3), 26, 16, 24),
   'pine needles': (ctx, random) => cluster(ctx, random, sprig, 16, 34, 52),
+  'willow leaves': (ctx, random) => cluster(ctx, random, willow, 18, 40, 58, 0.7),
 }
 
 export const LEAF_TEXTURES = Object.keys(LEAVES)
@@ -479,6 +530,7 @@ const ONE_OF = {
   'round cluster': round,
   'oak cluster': (ctx, length) => oak(ctx, length, 3),
   'pine needles': (ctx, length) => sprig(ctx, length * 0.8),
+  'willow leaves': willow,
 }
 
 export function fallingTexture(name) {
@@ -524,14 +576,15 @@ function paintLeaves(name) {
   return new THREE.CanvasTexture(canvas)
 }
 
-function cluster(ctx, random, shape, count, smallest, largest) {
+// Leaves turned any way, or within turn radians of the x axis
+function cluster(ctx, random, shape, count, smallest, largest, turn) {
   ctx.fillStyle = '#fff'
   for (let i = 0; i < count; i++) {
     const d = Math.sqrt(random()) * (118 - largest)
     const t = random() * Math.PI * 2
     ctx.save()
     ctx.translate(Math.cos(t) * d, Math.sin(t) * d)
-    ctx.rotate(random() * Math.PI * 2)
+    ctx.rotate(turn ? (random() - 0.5) * turn : random() * Math.PI * 2)
     ctx.beginPath()
     shape(ctx, smallest + random() * (largest - smallest))
     ctx.fill()

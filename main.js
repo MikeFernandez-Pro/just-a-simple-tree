@@ -12,6 +12,7 @@ import {
 import { generateOak } from "./oak.js";
 import { generatePine } from "./pine.js";
 import { generateCypress } from "./cypress.js";
+import { generateWillow } from "./willow.js";
 import { createFoliage, fallingTexture, LEAF_TEXTURES } from "./foliage.js";
 import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
@@ -20,6 +21,7 @@ import { createBar } from "./bar.js";
 import { exportGlb } from "./glb.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
 import { createSpeciesButtons } from "./species-buttons.js";
+import { createVertexCount } from "./vertex-count.js";
 import { sweep, sweptBackground } from "./transition.js";
 import {
   barkColors,
@@ -35,7 +37,12 @@ import {
   sunDirection,
 } from "./shading.js";
 import { sway, wind } from "./wind.js";
-import { instancedBufferAttribute, positionGeometry, vec3 } from "three/tsl";
+import {
+  attribute,
+  instancedBufferAttribute,
+  positionGeometry,
+  vec3,
+} from "three/tsl";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -104,6 +111,8 @@ const params = {
   droop: -1,
   slenderness: 1, // the cypress's: higher, narrower
   cypressBranches: 20,
+  willowStrands: 111, // the willow's hanging strands
+  hang: 0.91, // how far down towards the ground they hang
   spread: 0.9,
   crookedness: 0.5,
   sides: 10,
@@ -136,7 +145,9 @@ const wireframe = new THREE.Mesh(
   tree.geometry,
   new THREE.MeshBasicNodeMaterial({ color: "#1e1e1e", wireframe: true }),
 );
-wireframe.material.positionNode = positionGeometry.add(sway(positionGeometry));
+wireframe.material.positionNode = positionGeometry.add(
+  sway(positionGeometry, attribute("swayLift", "float")),
+);
 wireframe.visible = false;
 scene.add(wireframe);
 
@@ -154,26 +165,27 @@ falling.setTexture(fallingTexture(params.leavesTexture));
 scene.add(falling.mesh);
 
 // The leaf clumps the cards are scattered over; hidden, but handy to see.
-// Each is a sphere, or a pad when its species flattens it, swaying with the
-// wood
+// Each is a sphere, or a pad when its species flattens it, or a tress when
+// it stretches it, swaying with the wood
 const MAX_CLUMPS = 8192;
 const clumpData = new THREE.InstancedBufferAttribute(
   new Float32Array(MAX_CLUMPS * 4),
   4,
 ); // centre, radius
 clumpData.setUsage(THREE.DynamicDrawUsage);
-const clumpFlatten = new THREE.InstancedBufferAttribute(
-  new Float32Array(MAX_CLUMPS),
-  1,
-);
-clumpFlatten.setUsage(THREE.DynamicDrawUsage);
+const clumpShape = new THREE.InstancedBufferAttribute(
+  new Float32Array(MAX_CLUMPS * 2),
+  2,
+); // flatten, and how far below where it hangs from it is
+clumpShape.setUsage(THREE.DynamicDrawUsage);
 const clumpNode = instancedBufferAttribute(clumpData);
+const clumpShapeNode = instancedBufferAttribute(clumpShape);
 const clumpMaterial = new THREE.MeshLambertNodeMaterial({ color: "#4f7a3a" });
 clumpMaterial.positionNode = clumpNode.xyz
-  .add(sway(clumpNode.xyz))
+  .add(sway(clumpNode.xyz, clumpShapeNode.y))
   .add(
     positionGeometry
-      .mul(vec3(1, instancedBufferAttribute(clumpFlatten), 1))
+      .mul(vec3(1, clumpShapeNode.x, 1))
       .mul(clumpNode.w),
   );
 const emitters = new THREE.Mesh(
@@ -185,11 +197,22 @@ emitters.visible = false;
 emitters.count = 0;
 scene.add(emitters);
 
+// How many vertices the GLB would hold, the wood's and the leaves', kept up
+// to date as the tree is rebuilt and its cards are cut up
+const vertexCount = createVertexCount();
+function countVertices() {
+  vertexCount.show(
+    tree.geometry.attributes.position.count,
+    foliage.bakedVertices(),
+  );
+}
+
 // Each species grows its wood and leaf clumps its own way
 const SPECIES = {
   oak: generateOak,
   pine: generatePine,
   cypress: generateCypress,
+  willow: generateWillow,
 };
 
 // Sliders send a change on every step of a drag: the tree is rebuilt once
@@ -217,12 +240,15 @@ function rebuild() {
 
   emitters.count = Math.min(grown.clumps.length, MAX_CLUMPS);
   for (let i = 0; i < emitters.count; i++) {
-    const { position, radius, flatten = 1 } = grown.clumps[i];
+    const { position, radius, flatten = 1, hangFrom } = grown.clumps[i];
     clumpData.array.set([position.x, position.y, position.z, radius], i * 4);
-    clumpFlatten.array[i] = flatten;
+    const lift = hangFrom === undefined ? 0 : Math.max(hangFrom - position.y, 0);
+    clumpShape.array.set([flatten, lift], i * 2);
   }
   clumpData.needsUpdate = true;
-  clumpFlatten.needsUpdate = true;
+  clumpShape.needsUpdate = true;
+
+  countVertices();
 }
 
 function placeSun() {
@@ -370,7 +396,8 @@ themeButtons.show(START_THEME);
 // The species picks the shape rules; only its own sliders show in the shape
 // folder. The oak splits low into limbs that branch again; the pine is one
 // trunk ringed by whorls of drooping branches; the cypress is a narrow flame
-// of short climbing branches. The buttons down the left pick it here too, so
+// of short climbing branches; the willow is a dome of limbs hung with long
+// strands of leaves. The buttons down the left pick it here too, so
 // the panel and the address follow them
 const speciesControl = treeSection.add(
   params,
@@ -387,9 +414,16 @@ const speciesButtons = createSpeciesButtons({
 // wireframe shows its vertices, alone
 const shape = treeSection.addFolder("shape");
 const seedControl = shape.add(params, "seed", 1, 9999, 1).onChange(requestRebuild);
-shape.add(params, "size", 2, 8).onChange(requestRebuild);
+const sizeControl = shape
+  .add(params, "size", 2, 8)
+  .onChange(requestRebuild);
+// The oak's and the willow's limbs
+const mainLimbsControl = shape
+  .add(params, "mainLimbs", 3, 6, 1)
+  .name("main limbs")
+  .onChange(requestRebuild);
 const oakControls = [
-  shape.add(params, "mainLimbs", 3, 6, 1).name("main limbs").onChange(requestRebuild),
+  mainLimbsControl,
   shape.add(params, "levels", 0, 4, 1).onChange(requestRebuild),
   shape.add(params, "branches", 2, 5, 1).onChange(requestRebuild),
   shape.add(params, "spread", 0.3, 1.3).onChange(requestRebuild),
@@ -414,10 +448,18 @@ const cypressControls = [
     .name("branch count")
     .onChange(requestRebuild),
 ];
+const willowControls = [
+  mainLimbsControl,
+  shape
+    .add(params, "willowStrands", 20, 300, 1)
+    .name("strands")
+    .onChange(requestRebuild),
+  shape.add(params, "hang", 0.1, 1).onChange(requestRebuild),
+];
 const crookednessControl = shape
   .add(params, "crookedness", 0, 1.5)
   .onChange(requestRebuild);
-shape
+const trunkThicknessControl = shape
   .add(params, "trunkThickness", 0.1, 0.6)
   .name("trunk thickness")
   .onChange(requestRebuild);
@@ -433,8 +475,10 @@ const speciesControls = {
   oak: oakControls,
   pine: pineControls,
   cypress: cypressControls,
+  willow: willowControls,
 };
-// A control may belong to more than one species, like the droop
+// A control may belong to more than one species, like the droop or the
+// main limbs
 function showSpecies() {
   const shown = speciesControls[params.species];
   for (const control of new Set(Object.values(speciesControls).flat())) {
@@ -454,6 +498,10 @@ const OAK_DEFAULTS = {
   flutter: 0.25,
   falling: 277,
   droop: -1, // the oak has none
+  mainLimbs: 3,
+  size: 5.27,
+  trunkThickness: 0.21,
+  wind: 0.22,
 };
 const SPECIES_DEFAULTS = {
   oak: OAK_DEFAULTS,
@@ -467,6 +515,10 @@ const SPECIES_DEFAULTS = {
     flutter: 0.09,
     falling: 70,
     droop: -1,
+    mainLimbs: 3, // the pine has none
+    size: 5.27,
+    trunkThickness: 0.21,
+    wind: 0.22,
   },
   cypress: {
     crookedness: 0.5,
@@ -478,6 +530,27 @@ const SPECIES_DEFAULTS = {
     flutter: 0.07,
     falling: 70,
     droop: -0.16,
+    mainLimbs: 3, // the cypress has none
+    size: 5.27,
+    trunkThickness: 0.21,
+    wind: 0.22,
+  },
+  // Tall and slender, its strands in a few big cards each, and swaying
+  // gently, since its strands swing more than the rest of the wood
+  willow: {
+    crookedness: 0.72,
+    clumpSize: 0.9,
+    cardsPerClump: 4,
+    texture: "round cluster",
+    cardSize: 2.05,
+    roundness: 0.27,
+    flutter: 0.12,
+    falling: 150,
+    droop: -1, // the willow's strands hang by hang instead
+    mainLimbs: 5,
+    size: 6.82,
+    trunkThickness: 0.11,
+    wind: 0.17,
   },
 };
 let speciesSettings = {};
@@ -568,7 +641,10 @@ const cardSizeControl = cards
 const SEGMENTS = { "1 × 1": 1, "2 × 2": 2, "3 × 3": 3, "4 × 4": 4 };
 cards
   .add({ segments: "2 × 2" }, "segments", Object.keys(SEGMENTS))
-  .onChange((name) => foliage.setSegments(SEGMENTS[name]));
+  .onChange((name) => {
+    foliage.setSegments(SEGMENTS[name]);
+    countVertices();
+  });
 const roundnessControl = cards
   .add(foliage.uniforms.roundness, "value", 0, 1)
   .name("roundness");
@@ -597,7 +673,9 @@ const leafPickers = addRamp(
 
 const breeze = renderer.inspector.createParameters("Wind");
 breeze.add(wind.direction, "value", -Math.PI, Math.PI).name("direction");
-breeze.add(wind.strength, "value", 0, 1).name("strength");
+const windControl = breeze
+  .add(wind.strength, "value", 0, 1)
+  .name("strength");
 breeze.add(wind.speed, "value", 0, 3).name("speed");
 breeze.add(wind.frequency, "value", 0.05, 1).name("gust size");
 const flutterControl = breeze
@@ -683,6 +761,10 @@ speciesSettings = {
   flutter: flutterControl,
   falling: fallingControl,
   droop: droopControl,
+  mainLimbs: mainLimbsControl,
+  size: sizeControl,
+  trunkThickness: trunkThicknessControl,
+  wind: windControl,
 };
 const sections = [treeSection, leafSection, breeze, lawn, fall, light];
 const theme = () => THEMES[themeName];

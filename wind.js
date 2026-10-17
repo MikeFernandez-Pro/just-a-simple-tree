@@ -20,14 +20,15 @@ export const blowing = wind.strength.mul(wind.gust.add(1))
 // wind, with a little turbulence, more the higher up it is. How far down the
 // bend reaches follows the strength: a breeze moves only the crown (height
 // squared), a gale bends the whole tree from the ground (height alone). The
-// root never moves
-export function sway(position) {
+// root never moves. Lift raises the height it sways as: what hangs swings
+// as though it stood as high above where it hangs from as it falls below
+export function sway(position, lift = float(0)) {
   const downwind = vec3(cos(wind.direction), 0, sin(wind.direction))
   const drift = position.mul(wind.frequency).sub(downwind.mul(time.mul(wind.speed)))
   const gust = mx_noise_float(drift).add(0.6)
   const turbulence = mx_noise_vec3(drift.add(17.3)).mul(0.35)
   const reach = float(2).sub(blowing.clamp(0, 1))
-  const bend = position.y.div(wind.height).max(0).pow(reach)
+  const bend = position.y.add(lift).div(wind.height).max(0).pow(reach)
   return downwind.mul(gust).add(turbulence).mul(bend.mul(blowing))
 }
 

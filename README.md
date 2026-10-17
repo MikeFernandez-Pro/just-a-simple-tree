@@ -1,7 +1,7 @@
 # Just a simple tree
 
 A procedural tree with anime-style leaves, in three.js with WebGPU and TSL:
-an oak, a pine or a cypress. Every branch and leaf is generated from a
+an oak, a pine, a cypress or a weeping willow. Every branch and leaf is generated from a
 seed; nothing is modelled or loaded, and the leaf textures are painted in
 code at startup.
 
@@ -16,18 +16,22 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
 
 ## What it does
 
-- **The tree** grows from a seed, as one of three species, picked with the
-  buttons down the left side or in the panel, all from the same
+- **The tree** grows from a seed, as one of four species, picked with the
+  buttons down the left side (hover one for its name) or in the panel, all from the same
   crooked, tapered wood with rounded tips and collars where branches meet:
   - **oak**: a short trunk splitting into limbs, each branching again;
   - **pine**: one straight trunk ringed by whorls of drooping branches, long
     at the bottom and short at the top, so the crown is a tiered cone of
     flat pads of needles;
   - **cypress**: a tall, narrow flame of short branches climbing steeply
-    round a spiral, widest a third of the way up.
+    round a spiral, widest a third of the way up;
+  - **willow** (weeping willow): a short, stout trunk splitting into limbs that rise and
+    spread like a fountain, hung with long thin strands that arch over and
+    fall in curtains towards the ground.
 - **The leaves** are flat cards scattered over leaf clumps: one at each free
-  branch tip on the oak, flat pads along the pine's branches, and round
-  clumps packed up the cypress. Picking a species puts on its own leaf
+  branch tip on the oak, flat pads along the pine's branches, round
+  clumps packed up the cypress, and long tresses down the willow's strands,
+  their narrow leaves pointing down. Picking a species puts on its own leaf
   texture: needle sprigs for the pine. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
 - **Ambient occlusion** is worked out per card on the CPU, treating each
@@ -41,7 +45,8 @@ It needs a browser with WebGPU, such as a recent Chrome or Edge.
   turned at random and widened when seen edge on; the patch's ragged rim
   shortens the blades into it. It leans with the wind, goes through the
   tree's cel ramp with the tree's shadow on it, and takes the theme's colours.
-- **Wind** sways the whole tree and rocks each leaf card; **falling leaves**
+- **Wind** sways the whole tree and rocks each leaf card, and swings the
+  willow's strands from where they hang, more towards their tips; **falling leaves**
   drift downwind and settle on the floor, simulated with a compute shader.
 - **A new tree**: **generate new tree** at the bottom, or space, picks a
   new seed. The old leaves blow away while the wood folds back into the
@@ -73,7 +78,8 @@ sets them all again.
 ## Export
 
 **save .glb** at the bottom saves the tree as it stands, with no
-wind. The GLB works with a plain `MeshStandardMaterial` in any viewer or engine. It
+wind. The card in the bottom left corner counts the vertices it will hold,
+the trunk's (all the wood), the leaves' and their total, as the tree changes. The GLB works with a plain `MeshStandardMaterial` in any viewer or engine. It
 holds two meshes:
 
 - **`wood`**: the branches, with smooth normals.
@@ -185,7 +191,8 @@ export function celShade(mesh) {
 | `main.js` | the scene, the panel and the render loop |
 | `bar.js` | the buttons at the bottom: new tree and save .glb |
 | `themes.js` | the colour themes and the buttons along the top picking them |
-| `species-buttons.js` | the buttons down the left picking the species, and their icons |
+| `species-buttons.js` | the buttons down the left picking the species, their icons and names |
+| `vertex-count.js` | the card counting the vertices save .glb will write |
 | `stickers.js` | the round sticker buttons both rows are made of |
 | `transition.js` | the sweep from one theme to the next |
 | `icons/` | the theme buttons' icons |
@@ -193,6 +200,7 @@ export function celShade(mesh) {
 | `oak.js` | the oak: its branching and leaf clumps |
 | `pine.js` | the pine: its whorls and leaf clumps |
 | `cypress.js` | the cypress: its spiral of climbing branches and leaf clumps |
+| `willow.js` | the willow: its limbs, hanging strands and leaf clumps |
 | `foliage.js` | the leaf cards, their shading and the painted textures |
 | `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |

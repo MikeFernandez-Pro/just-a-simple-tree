@@ -15,10 +15,12 @@ export function createWood(params, random) {
   const normals = []
   const indices = []
   // For growing: per vertex, its ring's centre, its branch's root, and
-  // how far along the wood from the ground it is
+  // how far along the wood from the ground it is. For the wind: how far
+  // below where it hangs from it is, on a branch that hangs
   const centers = []
   const roots = []
   const births = []
+  const lifts = []
 
   // Turn a direction a random amount around itself
   function kink(dir, amount) {
@@ -31,8 +33,16 @@ export function createWood(params, random) {
   // it's negative). Grown from a parent, it starts as a collar as wide as
   // the parent there, heading half the parent's way, so it reads as one wood
   // instead of a stuck-in cylinder. from is how far along the wood from the
-  // ground it starts
-  function branch(start, dir, length, radius, crookedness, { parent = null, from = 0, segments, taper, upPull }) {
+  // ground it starts. A branch that hangs swings in the wind from its start.
+  // A thin one may take fewer sides than the rest
+  function branch(
+    start,
+    dir,
+    length,
+    radius,
+    crookedness,
+    { parent = null, from = 0, segments, taper, upPull, hangs = false, sides = params.sides },
+  ) {
     const points = [start]
     const radii = [parent ? parent.radius * COLLAR : radius]
     const d = parent ? parent.dir.clone().lerp(dir, 0.5).normalize() : dir.clone()
@@ -43,14 +53,13 @@ export function createWood(params, random) {
       points.push(points[i - 1].clone().addScaledVector(d, length / segments))
       radii.push(radius * (1 - (1 - taper) * (i / segments)))
     }
-    tube(points, radii, from, length)
+    tube(points, radii, from, length, hangs ? start.y : null, sides)
     return { points, radii }
   }
 
-  function tube(kinks, kinkRadii, from, length) {
+  function tube(kinks, kinkRadii, from, length, hangFrom, sides) {
     // Subdivide: smoothness rings per kink, along a curve through the kinks,
     // so bends come out round without the branch changing shape
-    const sides = params.sides
     const steps = (kinks.length - 1) * params.smoothness
     const curve = new THREE.CatmullRomCurve3(kinks, false, 'centripetal')
     const points = []
@@ -75,6 +84,7 @@ export function createWood(params, random) {
         centers.push(center.x, center.y, center.z)
         roots.push(kinks[0].x, kinks[0].y, kinks[0].z)
         births.push(birth)
+        lifts.push(hangFrom === null ? 0 : Math.max(hangFrom - center.y, 0))
         const angle = (j / sides) * Math.PI * 2
         v.copy(normal).multiplyScalar(Math.cos(angle)).addScaledVector(binormal, Math.sin(angle))
         positions.push(center.x + v.x * radius, center.y + v.y * radius, center.z + v.z * radius)
@@ -125,6 +135,8 @@ export function createWood(params, random) {
     geometry.setAttribute('growCenter', new THREE.Float32BufferAttribute(centers, 3))
     geometry.setAttribute('growRoot', new THREE.Float32BufferAttribute(roots, 3))
     geometry.setAttribute('birth', new THREE.Float32BufferAttribute(births.map((b) => b / farthest), 1))
+    // For the wind
+    geometry.setAttribute('swayLift', new THREE.Float32BufferAttribute(lifts, 1))
     return { geometry, farthest }
   }
 
