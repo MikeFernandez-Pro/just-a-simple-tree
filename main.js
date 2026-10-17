@@ -9,10 +9,10 @@ import {
   closeAll,
   trackFolders,
 } from "./inspector-tools.js";
-import { generateOak } from "./oak.js";
-import { generatePine } from "./pine.js";
-import { generateCypress } from "./cypress.js";
-import { generateWillow } from "./willow.js";
+import { oak } from "./oak.js";
+import { pine } from "./pine.js";
+import { cypress } from "./cypress.js";
+import { willow } from "./willow.js";
 import { createFoliage, fallingTexture, LEAF_TEXTURES } from "./foliage.js";
 import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
@@ -207,13 +207,9 @@ function countVertices() {
   );
 }
 
-// Each species grows its wood and leaf clumps its own way
-const SPECIES = {
-  oak: generateOak,
-  pine: generatePine,
-  cypress: generateCypress,
-  willow: generateWillow,
-};
+// Each species grows its wood and leaf clumps its own way, and brings its
+// name, icon, own shape sliders and own settings
+const SPECIES = { oak, pine, cypress, willow };
 
 // Sliders send a change on every step of a drag: the tree is rebuilt once
 // per frame at most, with the latest values
@@ -228,7 +224,7 @@ function rebuildIfWanted() {
 }
 
 function rebuild() {
-  const grown = SPECIES[params.species](params);
+  const grown = SPECIES[params.species].grow(params);
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
@@ -405,7 +401,7 @@ const speciesControl = treeSection.add(
   Object.keys(SPECIES),
 );
 const speciesButtons = createSpeciesButtons({
-  species: Object.keys(SPECIES),
+  species: SPECIES,
   onPick: (name) => speciesControl.setValue(name),
 });
 // The tree's shape, its trunk and its mesh in one folder. The mesh: sides
@@ -414,81 +410,48 @@ const speciesButtons = createSpeciesButtons({
 // wireframe shows its vertices, alone
 const shape = treeSection.addFolder("shape");
 const seedControl = shape.add(params, "seed", 1, 9999, 1).onChange(requestRebuild);
-const sizeControl = shape
-  .add(params, "size", 2, 8)
-  .onChange(requestRebuild);
-// The oak's and the willow's limbs
-const mainLimbsControl = shape
-  .add(params, "mainLimbs", 3, 6, 1)
-  .name("main limbs")
-  .onChange(requestRebuild);
-const oakControls = [
-  mainLimbsControl,
-  shape.add(params, "levels", 0, 4, 1).onChange(requestRebuild),
-  shape.add(params, "branches", 2, 5, 1).onChange(requestRebuild),
-  shape.add(params, "spread", 0.3, 1.3).onChange(requestRebuild),
-];
-// How the conifers' branches bend: down past 0, up below it
-const droopControl = shape
-  .add(params, "droop", -1, 1)
-  .onChange(requestRebuild);
-const pineControls = [
-  droopControl,
-  shape.add(params, "whorls", 3, 16, 1).onChange(requestRebuild),
-  shape
-    .add(params, "whorlBranches", 3, 9, 1)
-    .name("branches per whorl")
-    .onChange(requestRebuild),
-];
-const cypressControls = [
-  droopControl,
-  shape.add(params, "slenderness", 0.5, 2).onChange(requestRebuild),
-  shape
-    .add(params, "cypressBranches", 10, 90, 1)
-    .name("branch count")
-    .onChange(requestRebuild),
-];
-const willowControls = [
-  mainLimbsControl,
-  shape
-    .add(params, "willowStrands", 20, 300, 1)
-    .name("strands")
-    .onChange(requestRebuild),
-  shape.add(params, "hang", 0.1, 1).onChange(requestRebuild),
-];
-const crookednessControl = shape
-  .add(params, "crookedness", 0, 1.5)
-  .onChange(requestRebuild);
-const trunkThicknessControl = shape
-  .add(params, "trunkThickness", 0.1, 0.6)
-  .name("trunk thickness")
-  .onChange(requestRebuild);
-oakControls.push(
-  shape
-    .add(params, "splitHeight", 0.15, 0.6)
-    .name("split height")
-    .onChange(requestRebuild),
-);
-shape.add(params, "sides", 3, 24, 1).onChange(requestRebuild);
-shape.add(params, "smoothness", 1, 8, 1).onChange(requestRebuild);
-const speciesControls = {
-  oak: oakControls,
-  pine: pineControls,
-  cypress: cypressControls,
-  willow: willowControls,
+// Every shape slider, in the panel's order: its range, its step and its
+// name, where those differ from a slider's own. A species shows the ones it
+// lists as its own, and the ones no species lists show for all
+const SHAPE_SLIDERS = {
+  size: { min: 2, max: 8 },
+  mainLimbs: { min: 3, max: 6, step: 1, name: "main limbs" },
+  levels: { min: 0, max: 4, step: 1 },
+  branches: { min: 2, max: 5, step: 1 },
+  spread: { min: 0.3, max: 1.3 },
+  droop: { min: -1, max: 1 }, // how the conifers' branches bend: down past 0, up below it
+  whorls: { min: 3, max: 16, step: 1 },
+  whorlBranches: { min: 3, max: 9, step: 1, name: "branches per whorl" },
+  slenderness: { min: 0.5, max: 2 },
+  cypressBranches: { min: 10, max: 90, step: 1, name: "branch count" },
+  willowStrands: { min: 20, max: 300, step: 1, name: "strands" },
+  hang: { min: 0.1, max: 1 },
+  crookedness: { min: 0, max: 1.5 },
+  trunkThickness: { min: 0.1, max: 0.6, name: "trunk thickness" },
+  splitHeight: { min: 0.15, max: 0.6, name: "split height" },
+  sides: { min: 3, max: 24, step: 1 },
+  smoothness: { min: 1, max: 8, step: 1 },
 };
-// A control may belong to more than one species, like the droop or the
-// main limbs
+const shapeControls = Object.fromEntries(
+  Object.entries(SHAPE_SLIDERS).map(([key, { min, max, step, name = key }]) => [
+    key,
+    shape.add(params, key, min, max, step).name(name).onChange(requestRebuild),
+  ]),
+);
+// A slider may belong to more than one species, like the droop or the main
+// limbs
+const ownSliders = new Set(Object.values(SPECIES).flatMap((s) => s.sliders));
 function showSpecies() {
-  const shown = speciesControls[params.species];
-  for (const control of new Set(Object.values(speciesControls).flat())) {
-    setAvailable(control, shown.includes(control));
+  const shown = SPECIES[params.species].sliders;
+  for (const key of ownSliders) {
+    setAvailable(shapeControls[key], shown.includes(key));
   }
 }
-// Each species' own settings among those they share, put on when it's
-// picked, the way a theme puts on its colours. The controls are tied to them
+// The settings a species puts on when it's picked, among those they all
+// share, the way a theme puts on its colours: its own where it gives them,
+// these where it doesn't, which are the oak's. The controls are tied to them
 // once they all exist, further down
-const OAK_DEFAULTS = {
+const SPECIES_SETTINGS = {
   crookedness: 0.5,
   clumpSize: 1,
   cardsPerClump: 35,
@@ -497,64 +460,15 @@ const OAK_DEFAULTS = {
   roundness: 0.58,
   flutter: 0.25,
   falling: 277,
-  droop: -1, // the oak has none
+  droop: -1,
   mainLimbs: 3,
   size: 5.27,
   trunkThickness: 0.21,
   wind: 0.22,
 };
-const SPECIES_DEFAULTS = {
-  oak: OAK_DEFAULTS,
-  pine: {
-    crookedness: 0.45,
-    clumpSize: 1.25,
-    cardsPerClump: 13,
-    texture: "round cluster",
-    cardSize: 0.77,
-    roundness: 0,
-    flutter: 0.09,
-    falling: 70,
-    droop: -1,
-    mainLimbs: 3, // the pine has none
-    size: 5.27,
-    trunkThickness: 0.21,
-    wind: 0.22,
-  },
-  cypress: {
-    crookedness: 0.5,
-    clumpSize: 1.03,
-    cardsPerClump: 35,
-    texture: "round cluster",
-    cardSize: 0.92,
-    roundness: 0,
-    flutter: 0.07,
-    falling: 70,
-    droop: -0.16,
-    mainLimbs: 3, // the cypress has none
-    size: 5.27,
-    trunkThickness: 0.21,
-    wind: 0.22,
-  },
-  // Tall and slender, its strands in a few big cards each, and swaying
-  // gently, since its strands swing more than the rest of the wood
-  willow: {
-    crookedness: 0.72,
-    clumpSize: 0.9,
-    cardsPerClump: 4,
-    texture: "round cluster",
-    cardSize: 2.05,
-    roundness: 0.27,
-    flutter: 0.12,
-    falling: 150,
-    droop: -1, // the willow's strands hang by hang instead
-    mainLimbs: 5,
-    size: 6.82,
-    trunkThickness: 0.11,
-    wind: 0.17,
-  },
-};
 let speciesSettings = {};
-const speciesDefault = (key) => SPECIES_DEFAULTS[params.species][key];
+const speciesDefault = (key) =>
+  SPECIES[params.species].settings[key] ?? SPECIES_SETTINGS[key];
 speciesControl.onChange(() => {
   speciesButtons.show(params.species);
   showSpecies();
@@ -752,7 +666,7 @@ toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 // the one the page opened on, and reset keeps the theme. What a species sets
 // resets to the species picked now, and reset keeps the species too
 speciesSettings = {
-  crookedness: crookednessControl,
+  crookedness: shapeControls.crookedness,
   clumpSize: clumpSizeControl,
   cardsPerClump: cardsPerClumpControl,
   texture: textureControl,
@@ -760,10 +674,10 @@ speciesSettings = {
   roundness: roundnessControl,
   flutter: flutterControl,
   falling: fallingControl,
-  droop: droopControl,
-  mainLimbs: mainLimbsControl,
-  size: sizeControl,
-  trunkThickness: trunkThicknessControl,
+  droop: shapeControls.droop,
+  mainLimbs: shapeControls.mainLimbs,
+  size: shapeControls.size,
+  trunkThickness: shapeControls.trunkThickness,
   wind: windControl,
 };
 const sections = [treeSection, leafSection, breeze, lawn, fall, light];

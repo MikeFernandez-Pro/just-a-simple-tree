@@ -40,7 +40,35 @@ const LEAVES_FROM = 0.12 // how far along a strand its first clump is
 const CROWN_CLUMP = 0.07 // the clumps' radius at the limb and bough tips / the height
 const CROWN_FLATTEN = 0.75 // and their height / their width: the dome's top
 
-export function generateWillow(params) {
+// The willow, tall and slender, its strands in a few big cards each, and
+// swaying gently, since its strands swing more than the rest of the wood.
+// Its strands hang by hang, not droop
+export const willow = {
+  name: 'weeping willow',
+  // A dome on a tall trunk, hung with strands
+  icon:
+    '<rect x="10.8" y="11" width="2.4" height="11" rx="0.8"/>' +
+    '<path d="M2.5 12 C2.5 6.5 6.5 3 12 3 C17.5 3 21.5 6.5 21.5 12 Z"/>' +
+    '<rect x="2.5" y="9" width="2.4" height="9.5" rx="1.2"/><rect x="6" y="9" width="2.4" height="12" rx="1.2"/>' +
+    '<rect x="15.6" y="9" width="2.4" height="12" rx="1.2"/><rect x="19.1" y="9" width="2.4" height="9.5" rx="1.2"/>',
+  sliders: ['mainLimbs', 'willowStrands', 'hang'],
+  settings: {
+    crookedness: 0.72,
+    clumpSize: 0.9,
+    cardsPerClump: 4,
+    cardSize: 2.05,
+    roundness: 0.27,
+    flutter: 0.12,
+    falling: 150,
+    mainLimbs: 5,
+    size: 6.82,
+    trunkThickness: 0.11,
+    wind: 0.17,
+  },
+  grow,
+}
+
+function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
   const height = params.size * HEIGHT

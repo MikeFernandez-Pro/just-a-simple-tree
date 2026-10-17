@@ -191,16 +191,16 @@ export function celShade(mesh) {
 | `main.js` | the scene, the panel and the render loop |
 | `bar.js` | the buttons at the bottom: new tree and save .glb |
 | `themes.js` | the colour themes and the buttons along the top picking them |
-| `species-buttons.js` | the buttons down the left picking the species, their icons and names |
+| `species-buttons.js` | the buttons down the left picking the species |
 | `vertex-count.js` | the card counting the vertices save .glb will write |
 | `stickers.js` | the round sticker buttons both rows are made of |
 | `transition.js` | the sweep from one theme to the next |
 | `icons/` | the theme buttons' icons |
 | `wood.js` | the wood every species is built from: branches as tubes, and the growing data |
-| `oak.js` | the oak: its branching and leaf clumps |
-| `pine.js` | the pine: its whorls and leaf clumps |
-| `cypress.js` | the cypress: its spiral of climbing branches and leaf clumps |
-| `willow.js` | the willow: its limbs, hanging strands and leaf clumps |
+| `oak.js` | the oak: its branching and leaf clumps, its icon, sliders and settings |
+| `pine.js` | the pine: its whorls and leaf clumps, its icon, sliders and settings |
+| `cypress.js` | the cypress: its spiral of climbing branches and leaf clumps, its icon, sliders and settings |
+| `willow.js` | the willow: its limbs, hanging strands and leaf clumps, its icon, sliders and settings |
 | `foliage.js` | the leaf cards, their shading and the painted textures |
 | `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |

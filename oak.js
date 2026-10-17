@@ -11,11 +11,24 @@ const TIP_CLUMP = 0.6 // a branch tip's leaf clump radius / twig length
 
 const SHAPE = { segments: SEGMENTS, taper: TAPER, upPull: UP_PULL }
 
-export function generateOak(params) {
+// The oak, a short trunk splitting low into limbs that branch again. Its
+// settings are the ones every species starts from, so it has none of its own
+export const oak = {
+  name: 'oak',
+  // A round crown of three puffs on a short trunk
+  icon:
+    '<rect x="10.8" y="13" width="2.4" height="9" rx="0.8"/>' +
+    '<circle cx="12" cy="8" r="6"/><circle cx="7" cy="11.5" r="4"/><circle cx="17" cy="11.5" r="4"/>',
+  sliders: ['mainLimbs', 'levels', 'branches', 'spread', 'splitHeight'],
+  settings: {},
+  grow,
+}
+
+function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
   const twigs = [] // the last branches
-  const boughs = [] // branches that carry others but end free, no child at their tip
+  const freeTipped = [] // branches that carry others but end in a free tip, no child there
 
   // A branch and everything that grows from it
   function grow(start, dir, length, radius, depth, parent, from) {
@@ -44,7 +57,7 @@ export function generateOak(params) {
         from + (k / SEGMENTS) * length,
       )
     }
-    if (!forked) boughs.push({ points, length, from })
+    if (!forked) freeTipped.push({ points, length, from })
   }
 
   // A short, thick trunk that splits low into a few heavy limbs
@@ -71,14 +84,15 @@ export function generateOak(params) {
 
   // Leaf clumps: exactly one on every free branch tip, none at forks where a
   // child grows from the end, none anywhere else. A twig's is sized by the
-  // twig, a bough's like the twigs it would carry; clump size grows them all.
+  // twig, another branch's like the twigs it would carry; clump size grows
+  // them all.
   // They draw from their own random, so clump size never reshapes the
   // branches
   const leafRandom = mulberry32(params.seed + 7919)
   const clumps = []
   const tips = [
     ...twigs.map((twig) => ({ points: twig.points, scale: twig.length, end: twig.from + twig.length })),
-    ...boughs.map((bough) => ({ points: bough.points, scale: bough.length * LENGTH_FALLOFF, end: bough.from + bough.length })),
+    ...freeTipped.map((branch) => ({ points: branch.points, scale: branch.length * LENGTH_FALLOFF, end: branch.from + branch.length })),
   ]
   for (const { points, scale, end } of tips) {
     const radius = scale * TIP_CLUMP * (0.8 + leafRandom() * 0.4) * params.clumpSize

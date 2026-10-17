@@ -29,7 +29,27 @@ const LEADER = 0.045 // the lowest clump's radius on the leader, the trunk's bar
 const LEADER_CLUMPS = 4 // clumps up the leader, shrinking to its tip
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
-export function generatePine(params) {
+// The pine, a tiered cone of flat pads, densely carded, barely fluttering
+export const pine = {
+  name: 'pine',
+  // A cone of three tiers on a short trunk
+  icon:
+    '<rect x="10.8" y="17" width="2.4" height="5" rx="0.8"/>' +
+    '<path d="M12 1.5 L16.5 7.5 H14.2 L18.5 12.5 H15.8 L20.5 18 H3.5 L8.2 12.5 H5.5 L9.8 7.5 H7.5 Z"/>',
+  sliders: ['droop', 'whorls', 'whorlBranches'],
+  settings: {
+    crookedness: 0.45,
+    clumpSize: 1.25,
+    cardsPerClump: 13,
+    cardSize: 0.77,
+    roundness: 0,
+    flutter: 0.09,
+    falling: 70,
+  },
+  grow,
+}
+
+function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
   const height = params.size * HEIGHT

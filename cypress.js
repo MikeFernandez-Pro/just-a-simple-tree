@@ -26,7 +26,25 @@ const CORES = 16 // clumps stacked up the trunk, filling the crown's middle
 const SMALLEST = 0.03 // the smallest clump's radius / the height
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 
-export function generateCypress(params) {
+// The cypress, its branches climbing a little rather than drooping
+export const cypress = {
+  name: 'cypress',
+  // A flame on a short trunk
+  icon:
+    '<rect x="10.9" y="18" width="2.2" height="4.5" rx="0.8"/>' +
+    '<path d="M12 1 C14.8 5 16 10 15.2 14.5 C14.7 17.5 13.5 19 12 19 C10.5 19 9.3 17.5 8.8 14.5 C8 10 9.2 5 12 1 Z"/>',
+  sliders: ['droop', 'slenderness', 'cypressBranches'],
+  settings: {
+    clumpSize: 1.03,
+    roundness: 0,
+    flutter: 0.07,
+    falling: 70,
+    droop: -0.16,
+  },
+  grow,
+}
+
+function grow(params) {
   const random = mulberry32(params.seed)
   const wood = createWood(params, random)
   const height = params.size * HEIGHT
