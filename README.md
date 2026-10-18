@@ -435,7 +435,8 @@ tree's foot is on the same pixel in each, centred near the bottom.
   their leaves pointing down, and round clumps heaped up into the bush. Every species wears the same round leaves;
   the panel's texture can swap them for pointed, oak, pine-needle or willow
   leaves, or for **your image**: drop an image anywhere on the page, or
-  **load image…**. A PNG with transparency is cut out by it and keeps its own
+  **load image…**. The leaves picked stay on when you pick another
+  species. A PNG with transparency is cut out by it and keeps its own
   colours, within the cel bands, unless it's only black, white and grey; an
   image without transparency is read as white leaves on black. Both of those
   take the theme's colours. **colors from** switches

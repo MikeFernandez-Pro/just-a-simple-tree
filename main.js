@@ -725,13 +725,12 @@ const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
   .onChange(foliage.setShown);
-const leafTextureControl = speciesSetting(
-  "leafTexture",
-  cards
-    .add(params, "leafTexture", LEAF_TEXTURES)
-    .name("texture")
-    .onChange(setLeafTexture),
-);
+// The texture picked, painted or your image, stays on through a change of
+// species: every species wears the same leaves
+const leafTextureControl = cards
+  .add(params, "leafTexture", LEAF_TEXTURES)
+  .name("texture")
+  .onChange(setLeafTexture);
 cards.add({ "load image…": imageDrop.pick }, "load image…");
 const leafColorsControl = cards
   .add(params, "leafColors", ["theme", "image"])
