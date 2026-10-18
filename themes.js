@@ -68,6 +68,6 @@ export function createThemeButtons({ onPick }) {
   document.head.appendChild(style)
 
   const choices = Object.fromEntries(Object.entries(THEMES).map(([name, { emoji }]) => [name, emoji]))
-  const { show } = createStickers({ className: 'themes', choices, label: (name) => `${name} theme`, onPick })
+  const { show } = createStickers({ className: 'themes', choices, label: (name) => `${name} theme`, hint: '← →', onPick })
   return { show }
 }

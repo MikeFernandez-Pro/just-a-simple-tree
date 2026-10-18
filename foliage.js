@@ -29,7 +29,7 @@ import {
   vec4,
 } from 'three/tsl'
 import { GOLDEN_ANGLE, mulberry32, SIDE, UP } from './wood.js'
-import { ALBEDO, celShade, linear, sunDirection, tintShadow, toneMapped } from './shading.js'
+import { ALBEDO, celShade, linear, LUMA, sunDirection, tintShadow, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
 import { downwind, flutter, liftBelow, sway } from './wind.js'
@@ -83,6 +83,7 @@ export function createFoliage() {
     textured: uniform(1), // 0 shows the bare cards
     flatNormals: uniform(0), // 1 lights each card by its own face, as before the transfer
     showNormals: uniform(0), // 1 draws the normals as colours
+    imageColors: uniform(0), // 1 colours the leaves with a dropped image's own colours, 0 with the ramp's
     // The tutorial's foliage ramp, its darkest colour left out: three
     // colours with flat bands between short blends
     colors: [
@@ -163,6 +164,8 @@ export function createFoliage() {
   // is a 2 x 2 atlas of four clusters, one picked per card; none until one
   // is picked
   const leaves = texture(new THREE.Texture(), atlasUV())
+  // A dropped image's colours, in the same cells as its leaves
+  const ownColors = texture(new THREE.Texture(), atlasUV())
   const opacity = mix(float(1), leaves.r, u.textured)
   material.opacityNode = opacity
   material.alphaTest = 0.5
@@ -178,6 +181,11 @@ export function createFoliage() {
   // Colour: the lit value through the three colours, at its band edges,
   // hard-edged
   let color = celShade(LEAF_STOPS.map((at, i) => [at, [shadow, mid, light][i]]))
+
+  // Or a dropped image's own colours, kept to the ramp's bands: each band
+  // as much darker or lighter than the mid colour as the ramp makes it
+  const band = dot(color, LUMA).div(dot(mid, LUMA).max(1e-4))
+  color = mix(color, ownColors.rgb.mul(band), u.imageColors.mul(u.textured))
 
   // The tutorial's gradient: an easing ramp tied to the light, full on the
   // sun's side of the tree and falling to nothing across the far two thirds,
@@ -321,9 +329,11 @@ export function createFoliage() {
     showIfAny()
   }
 
-  // One of the painted textures, each painted once when first picked
-  function setLeafTexture(name) {
-    leaves.value = leafTexture(name)
+  // One of the painted textures, each painted once when first picked, or
+  // the atlases made from a dropped image, its leaves and its colours
+  function setLeafTexture(name, own) {
+    leaves.value = name === OWN_TEXTURE ? own.leaves : leafTexture(name)
+    if (own) ownColors.value = own.colors
   }
 
   // The cards as they stand with no wind, as one plain mesh for export, the
@@ -409,12 +419,53 @@ export function createFoliage() {
     geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2))
     geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
     geometry.setIndex(index)
-    return { geometry, shadeScale, texture: leaves.value }
+    return { geometry, shadeScale, texture: leaves.value, colors: u.imageColors.value ? ownColors.value : null }
   }
 
   // How many vertices bake gives: every card's own, none shared
   function bakedVertices() {
     return mesh.count * cards[segments].attributes.position.count
+  }
+
+  // Runs fn with share of the cards scattered on the same clumps, then puts
+  // back the cards showing
+  function withShare(grownClumps, params, share, fn) {
+    const count = mesh.count
+    const kept = cardAttributes.map((attribute) => attribute.array.slice(0, count * attribute.itemSize))
+    update(grownClumps, { ...params, cardsPerClump: Math.max(1, Math.round(params.cardsPerClump * share)) })
+    const result = fn()
+    cardAttributes.forEach((attribute, i) => attribute.array.set(kept[i]))
+    mesh.count = count
+    if (count > 0) for (const attribute of cardAttributes) uploadFirst(attribute, count)
+    showIfAny()
+    return result
+  }
+
+  // The leaves baked for a lower level of detail: share of the cards on
+  // the same clumps, each grown by size, cut into segments
+  function bakeLevel(grownClumps, params, { share, size, segments: cut }) {
+    return withShare(grownClumps, params, share, () => {
+      const was = { segments, size: u.cardSize.value }
+      segments = cut
+      u.cardSize.value = was.size * size
+      const baked = bake()
+      segments = was.segments
+      u.cardSize.value = was.size
+      return baked
+    })
+  }
+
+  // How many vertices bakeLevel would give, without baking
+  function levelVertices(grownClumps, params, { share, segments: cut }) {
+    return withShare(grownClumps, params, share, () => mesh.count * cards[cut].attributes.position.count)
+  }
+
+  // Where the cards' leaves reach with no wind: each card's centre and
+  // half its width, as [x, y, z, radius]. The painted clusters fill the
+  // circle inside a card, not its corners
+  function reach() {
+    const A = cardA.array
+    return Array.from({ length: mesh.count }, (_, n) => [A[n * 4], A[n * 4 + 1], A[n * 4 + 2], A[n * 4 + 3] * u.cardSize.value * 0.5])
   }
 
   // The clumps themselves, hidden, but handy to see
@@ -430,6 +481,9 @@ export function createFoliage() {
     setSegments,
     bake,
     bakedVertices,
+    bakeLevel,
+    levelVertices,
+    reach,
   }
 }
 
@@ -629,7 +683,9 @@ const LEAVES = {
   'willow leaves': (ctx, random) => cluster(ctx, random, willow, 18, 40, 58, 0.7),
 }
 
-export const LEAF_TEXTURES = Object.keys(LEAVES)
+// A dropped image, after the painted ones
+export const OWN_TEXTURE = 'your image'
+export const LEAF_TEXTURES = [...Object.keys(LEAVES), OWN_TEXTURE]
 
 // A leaf texture, painted once
 const textures = {}
@@ -701,4 +757,57 @@ function cluster(ctx, random, shape, count, smallest, largest, turn) {
     ctx.fill()
     ctx.restore()
   }
+}
+
+// A dropped image as the leaves' atlases: the image in every cell, fitted
+// in whole, the second and third flipped upside down, so neighbouring cards
+// differ while their leaves still point the same way along x. The leaves
+// are where the image is opaque, or, in an image with no transparency,
+// where it's light, white leaves on black like the painted ones. Its own
+// colours go in an atlas of their own. Larger cells than the painted
+// ones, to keep an image's detail
+const OWN_CELL = 512 // pixels
+export function ownLeaves(image) {
+  const size = OWN_CELL * 2
+  const colors = document.createElement('canvas')
+  colors.width = colors.height = size
+  const ctx = colors.getContext('2d')
+  const scale = Math.min(OWN_CELL / image.width, OWN_CELL / image.height)
+  const width = image.width * scale
+  const height = image.height * scale
+  for (let v = 0; v < 4; v++) {
+    ctx.save()
+    ctx.translate((v % 2) * OWN_CELL + OWN_CELL / 2, Math.floor(v / 2) * OWN_CELL + OWN_CELL / 2)
+    if (v === 1 || v === 2) ctx.scale(1, -1)
+    ctx.drawImage(image, -width / 2, -height / 2, width, height)
+    ctx.restore()
+  }
+  const see = seeThrough(image)
+  const data = ctx.getImageData(0, 0, size, size).data
+  const mask = new ImageData(size, size)
+  for (let i = 0; i < data.length; i += 4) {
+    const light = see ? data[i + 3] : (data[i] * 0.2126 + data[i + 1] * 0.7152 + data[i + 2] * 0.0722) * (data[i + 3] / 255)
+    mask.data[i] = mask.data[i + 1] = mask.data[i + 2] = light
+    mask.data[i + 3] = 255
+  }
+  const leaves = document.createElement('canvas')
+  leaves.width = leaves.height = size
+  leaves.getContext('2d').putImageData(mask, 0, 0)
+  const colorTexture = new THREE.CanvasTexture(colors)
+  colorTexture.colorSpace = THREE.SRGBColorSpace
+  return { leaves: new THREE.CanvasTexture(leaves), colors: colorTexture, transparent: see }
+}
+
+// Whether an image has any transparency of its own, looked at no bigger
+// than a cell
+function seeThrough(image) {
+  const scale = Math.min(1, OWN_CELL / Math.max(image.width, image.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) return true
+  return false
 }

@@ -201,3 +201,26 @@ export function addCopyConfig(inspector, sections) {
   // bar never drops out of view
   list.style.maxHeight = 'calc(100vh - 200px)'
 }
+
+// Opens the Parameters tab in its floating panel, unfolds a section and every
+// folder inside it, and scrolls the list to it, for a button elsewhere on the
+// page that leads to its settings. A filter typed in the panel's box is
+// cleared first, so it can't hide the section
+export function openSection(inspector, section) {
+  inspector.profiler.show(inspector.parameters)
+  const list = inspector.parameters.paramList.domElement.parentElement
+  const filter = list.parentElement.querySelector('input[type="search"]')
+  if (filter?.value) {
+    filter.value = ''
+    filter.dispatchEvent(new Event('input'))
+  }
+  const unfold = (group) => {
+    if (!group.paramList.isOpen) group.paramList.toggle()
+    ;(group.folders ?? []).forEach(unfold)
+  }
+  unfold(section)
+  // Only the list scrolls: scrollIntoView would scroll the Inspector's
+  // hidden bottom panel into view too
+  const top = section.paramList.domElement.getBoundingClientRect().top - list.getBoundingClientRect().top
+  list.scrollTo({ top: list.scrollTop + top, behavior: 'smooth' })
+}

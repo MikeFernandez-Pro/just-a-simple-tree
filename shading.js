@@ -72,7 +72,7 @@ function ramp(value, stops) {
 // The lit value through a ramp, tinted by the light's colour: the band comes
 // from the light's brightness, the tint from its hue (none where no light
 // reaches, so the darkest band keeps its own colour)
-const LUMA = vec3(0.2126, 0.7152, 0.0722)
+export const LUMA = vec3(0.2126, 0.7152, 0.0722)
 export function celShade(stops) {
   const value = dot(output.rgb, LUMA)
   const tint = mix(vec3(1), output.rgb.div(value.max(1e-4)), smoothstep(0, 0.02, value))

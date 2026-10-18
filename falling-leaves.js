@@ -16,6 +16,7 @@ import {
   output,
   positionGeometry,
   rotate,
+  dot,
   saturation,
   select,
   sin,
@@ -26,7 +27,7 @@ import {
   vec4,
 } from 'three/tsl'
 import { atlasUV } from './foliage.js'
-import { toneMapped } from './shading.js'
+import { LUMA, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { blowing, downwind, wind } from './wind.js'
 
@@ -56,7 +57,7 @@ const SATURATION = 1.25 // how much more vivid than the foliage they fall from
 // 0 high up, rising smoothly to 1 at the floor
 const levelling = (height) => float(1).sub(height.sub(FLOOR).div(LANDING).clamp(0, 1)).smoothstep(0, 1)
 
-export function createFallingLeaves({ colors, crownCenter, crownSize }) {
+export function createFallingLeaves({ colors, imageColors, crownCenter, crownSize }) {
   const uniforms = {
     lifetime: uniform(14), // seconds from leaving the tree to vanishing
     fallSpeed: uniform(0.42), // metres per second, before the wind
@@ -205,6 +206,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
 
   // Alpha: one leaf in the tree's style, clipped hard, in the shadow too
   const leafTexture = texture(new THREE.Texture(), atlasUV())
+  const leafColors = texture(new THREE.Texture(), atlasUV())
   material.opacityNode = leafTexture.r
   material.alphaTest = 0.5
   material.maskShadowNode = leafTexture.r.greaterThan(0.5)
@@ -215,7 +217,10 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   // a touch more saturated, so they stand out against the tree
   const [shadow, mid, light] = colors.map((color) => swept(color))
   const shade = hash(instanceIndex.add(313))
-  const color = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
+  const themed = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
+  // Or, on a tree in a dropped image's colours, the image's, shaded alike
+  const own = leafColors.rgb.mul(dot(themed, LUMA).div(dot(mid, LUMA).max(1e-4)))
+  const color = mix(themed, own, imageColors)
   material.outputNode = vec4(toneMapped(color), output.a)
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)
@@ -248,8 +253,10 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     nextFrom = (u.looseFrom.value + LOOSE) % pool
   }
 
-  function setTexture(texture) {
+  // The leaf to cut out, and a dropped image's colours, if it has them
+  function setTexture(texture, colors) {
     leafTexture.value = texture
+    if (colors) leafColors.value = colors
   }
 
   return { mesh, uniforms, update, setTexture, shake, MAX_LEAVES }

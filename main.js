@@ -1,6 +1,8 @@
 import * as THREE from "three/webgpu";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { Inspector } from "three/addons/inspector/Inspector.js";
+import { Item } from "three/addons/inspector/ui/Item.js";
+import { createValueSpan } from "three/addons/inspector/ui/utils.js";
 import { addParameterFilter, setAvailable } from "./inspector-filter.js";
 import {
   addCopyConfig,
@@ -8,6 +10,7 @@ import {
   addShareLink,
   closeAll,
   onChangeNow,
+  openSection,
   trackFolders,
 } from "./inspector-tools.js";
 import { oak } from "./oak.js";
@@ -15,12 +18,21 @@ import { pine } from "./pine.js";
 import { cypress } from "./cypress.js";
 import { willow } from "./willow.js";
 import { bush } from "./bush.js";
-import { createFoliage, fallingTexture, LEAF_TEXTURES } from "./foliage.js";
+import {
+  createFoliage,
+  fallingTexture,
+  LEAF_TEXTURES,
+  OWN_TEXTURE,
+  ownLeaves,
+} from "./foliage.js";
+import { createImageDrop } from "./image-drop.js";
 import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
 import { createRegenerate } from "./regenerate.js";
 import { createBar } from "./bar.js";
 import { exportGlb } from "./glb.js";
+import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
+import { bounds, levelsOfDetail, levelVertices, MAX_LEVELS } from "./lod.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
 import { createSpeciesButtons } from "./species-buttons.js";
 import { createVertexCount } from "./vertex-count.js";
@@ -121,6 +133,7 @@ const params = {
   clumpSize: 1, // scales every leaf clump, and its cards with it
   aoDistance: 2.5, // the tutorial's AO node distance
   leafTexture: "round cluster",
+  leafColors: "theme", // or "image": a dropped image's own colours
   showClumps: false,
   wireframe: false,
   leaves: true,
@@ -156,26 +169,64 @@ scene.add(foliage.mesh, foliage.clumps);
 // Leaves falling from the crown, in the foliage's colours
 const falling = createFallingLeaves({
   colors: foliage.uniforms.colors,
+  imageColors: foliage.uniforms.imageColors,
   crownCenter: foliage.uniforms.crownCenter,
   crownSize: foliage.uniforms.crownSize,
 });
 scene.add(falling.mesh);
 
-// The leaf texture, on the cards and on what falls from them
+// The leaf texture, on the cards and on what falls from them. Your image is
+// one dropped on the page or picked with the panel's button: picked in the
+// panel before there is one, it opens the file picker, and the leaves keep
+// what they wear until an image comes. Its leaves take the theme's colours
+// or its own
+let own = null;
 function setLeafTexture(name) {
-  foliage.setLeafTexture(name);
-  falling.setTexture(fallingTexture(name));
+  const mine = name === OWN_TEXTURE;
+  if (mine && !own) {
+    if (navigator.userActivation?.isActive) imageDrop.pick();
+    return;
+  }
+  foliage.setLeafTexture(name, own);
+  falling.setTexture(mine ? own.leaves : fallingTexture(name), own?.colors);
+  showLeafColors();
+}
+function showLeafColors() {
+  const mine = params.leafTexture === OWN_TEXTURE && own;
+  foliage.uniforms.imageColors.value =
+    mine && params.leafColors === "image" ? 1 : 0;
 }
 setLeafTexture(params.leafTexture);
 
+// A new image puts itself on the leaves, in its own colours when it has
+// transparency to cut them out with, in the theme's when it's a mask of
+// white leaves on black. The one kept from last time only comes back for a
+// link that asks for it
+const imageDrop = createImageDrop({
+  onImage: (image, { restored }) => {
+    own = ownLeaves(image);
+    if (!restored) {
+      leafColorsControl.setValue(own.transparent ? "image" : "theme");
+    }
+    if (params.leafTexture === OWN_TEXTURE) setLeafTexture(OWN_TEXTURE);
+    else if (!restored) leafTextureControl.setValue(OWN_TEXTURE);
+  },
+});
+
 // How many vertices the GLB would hold, the wood's and the leaves', kept up
-// to date as the tree is rebuilt and its cards are cut up
+// to date as the tree is rebuilt and its cards are cut up. Each level of
+// tree + LODs is counted in the panel, a moment after the tree stops
+// changing, as each lighter level grows its wood and scatters its cards again
 const vertexCount = createVertexCount();
+const LEVELS_DELAY = 300; // milliseconds after the last change
+let levelsTimer = 0;
 function countVertices() {
   vertexCount.show(
     tree.geometry.attributes.position.count,
     foliage.bakedVertices(),
   );
+  clearTimeout(levelsTimer);
+  levelsTimer = setTimeout(countLevels, LEVELS_DELAY);
 }
 
 // Each species grows its wood and leaf clumps its own way, and brings its
@@ -448,25 +499,182 @@ const woodPickers = addRamp(woodColors, barkColors, [
 ]);
 woodControls.push(wireframeControl, woodColors);
 
-// The buttons at the bottom: a new tree, and the tree as a GLB for a plain
-// MeshStandardMaterial (the README has the snippet that puts the cel look
-// back)
+// The buttons at the bottom: a new tree, and exporting it, from a menu in
+// two groups, 3D models and images, each choice's purpose in its tooltip:
+// the tree as a GLB for a plain MeshStandardMaterial (the README has the snippet
+// that puts the cel look back), on its own or with its levels of detail,
+// lighter copies for farther away and an impostor last if asked; a picture
+// from the camera; a sprite sheet of views round it; or an impostor, a quad
+// showing an atlas of views over the sky above it. How each goes is set in
+// the panel's Export section, which the menu's last choice opens
+const exportParams = {
+  levels: 3, // tree + LODs': the tree and its lighter copies
+  impostorLevel: true,
+  pictureSize: "2048",
+  imageFormat: "png", // the picture's and the sprite sheet's, png or webp
+  pictureAlpha: false, // RGBA on a clear background, rather than RGB on the theme's
+  spriteAngles: "8",
+  spriteSize: "256",
+  spriteElevation: 10, // degrees above level
+  impostorFrames: "8",
+  impostorSize: "256",
+};
+const capture = createCapture({
+  renderer,
+  scene,
+  loop: frame,
+  scenery: [ground, grass.mesh, falling.mesh],
+  tree: [tree, wireframe, foliage.mesh, foliage.clumps],
+});
+const fileName = (kind, extension) =>
+  `${params.species}-${params.seed}${kind ? `-${kind}` : ""}.${extension}`;
+// The impostor's atlas, its frames no bigger than the atlas allows
+async function impostorOf() {
+  const sphere = bounds(tree.geometry, foliage);
+  const frames = Number(exportParams.impostorFrames);
+  const size = Math.min(
+    Number(exportParams.impostorSize),
+    Math.floor(MAX_ATLAS / frames),
+  );
+  const atlas = await capture.impostor(sphere, { frames, size });
+  return { atlas, frames, center: sphere.center, radius: sphere.radius };
+}
+const EXPORTS = [
+  {
+    group: "3D models",
+    label: "tree",
+    use: "the tree as you see it, for Blender, Unity, Godot or three.js",
+    run: async () =>
+      exportGlb({
+        levels: [{ wood: tree.geometry, leaves: foliage.bake() }],
+        foliage,
+        barkColors,
+        species: params.species,
+        seed: params.seed,
+      }),
+  },
+  {
+    group: "3D models",
+    label: "tree + LODs",
+    use: "the tree and lighter copies of it for farther away, for games",
+    run: async () =>
+      exportGlb({
+        levels: levelsOfDetail({
+          count: exportParams.levels,
+          params,
+          grow: (lighter) => SPECIES[params.species].grow(lighter),
+          wood: tree.geometry,
+          clumps: grown.clumps,
+          foliage,
+        }),
+        impostor: exportParams.impostorLevel ? await impostorOf() : null,
+        foliage,
+        barkColors,
+        species: params.species,
+        seed: params.seed,
+        name: fileName("lods", "glb"),
+      }),
+  },
+  {
+    group: "images",
+    label: "picture",
+    use: "this view, as you see it",
+    run: async () => {
+      const canvas = await capture.picture(camera, {
+        size: Number(exportParams.pictureSize),
+        transparent: exportParams.pictureAlpha,
+      });
+      const { blob, extension } = await encode(
+        canvas,
+        exportParams.imageFormat,
+      );
+      download(blob, fileName("", extension));
+    },
+  },
+  {
+    group: "images",
+    label: "sprite sheet",
+    use: "views all round the tree, for 2D games",
+    run: async () => {
+      const count = Number(exportParams.spriteAngles);
+      const size = Math.min(
+        Number(exportParams.spriteSize),
+        Math.floor(MAX_ATLAS / 4),
+      );
+      const { canvas } = await capture.sprites(
+        bounds(tree.geometry, foliage),
+        {
+          count,
+          size,
+          elevation: THREE.MathUtils.degToRad(exportParams.spriteElevation),
+        },
+      );
+      const { blob, extension } = await encode(
+        canvas,
+        exportParams.imageFormat,
+      );
+      download(blob, fileName(`sprites-${count}`, extension));
+    },
+  },
+  {
+    group: "3D models",
+    label: "impostor",
+    use: "a flat card that looks 3D, for trees far away",
+    run: async () =>
+      exportGlb({
+        levels: [],
+        impostor: await impostorOf(),
+        foliage,
+        barkColors,
+        species: params.species,
+        seed: params.seed,
+        name: fileName("impostor", "glb"),
+      }),
+  },
+];
 const bar = createBar({
   onNewTree: newTree,
-  onSave: () =>
-    exportGlb({
-      tree,
-      foliage,
-      barkColors,
-      species: params.species,
-      seed: params.seed,
-    }),
+  exports: EXPORTS,
+  onSettings: () => {
+    openSection(renderer.inspector, exporting);
+    countLevels();
+  },
 });
 
+// The keys: space grows a new tree, left and right step through the themes,
+// as their buttons run along the top, and up and down through the species,
+// as theirs run down the left side, round from either end. Each goes through
+// the panel's control, as a click does. Not while a field in the panel has
+// them, nor while the export menu is open, its choices taking the arrows.
+// Held down, an arrow steps once
+const KEY_STEPS = {
+  ArrowLeft: ["theme", -1],
+  ArrowRight: ["theme", 1],
+  ArrowUp: ["species", -1],
+  ArrowDown: ["species", 1],
+};
+const stepped = (keys, current, by) =>
+  keys[(keys.indexOf(current) + by + keys.length) % keys.length];
 addEventListener("keydown", (e) => {
-  if (e.code !== "Space" || e.target instanceof HTMLInputElement) return;
+  const field = e.target.closest?.("input, select, textarea");
+  if (field) return;
+  if (e.code === "Space") {
+    e.preventDefault();
+    bar.newTree();
+    return;
+  }
+  const step = KEY_STEPS[e.key];
+  if (!step || e.altKey || e.ctrlKey || e.metaKey || bar.menuOpen()) return;
   e.preventDefault();
-  bar.newTree();
+  if (e.repeat) return;
+  const [what, by] = step;
+  if (what === "theme") {
+    const themes = Object.keys(THEMES);
+    themeControl.setValue(stepped(themes, themeControl.getValue(), by));
+  } else {
+    const species = Object.keys(SPECIES);
+    speciesControl.setValue(stepped(species, params.species, by));
+  }
 });
 
 const leafSection = renderer.inspector.createParameters("Leaves");
@@ -494,13 +702,18 @@ const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
   .onChange(foliage.setShown);
-speciesSetting(
+const leafTextureControl = speciesSetting(
   "leafTexture",
   cards
     .add(params, "leafTexture", LEAF_TEXTURES)
     .name("texture")
     .onChange(setLeafTexture),
 );
+cards.add({ "load image…": imageDrop.pick }, "load image…");
+const leafColorsControl = cards
+  .add(params, "leafColors", ["theme", "image"])
+  .name("colors from")
+  .onChange(showLeafColors);
 debugView(cards.add(params, "showTexture"))
   .name("show texture")
   .onChange((v) => (foliage.uniforms.textured.value = v ? 1 : 0));
@@ -625,6 +838,85 @@ toneFolder
   .onChange((name) => (toneMappingType.value = TONE_MAPPINGS[name]));
 toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 
+// How the export menu's choices are made: the images' format, PNG or a
+// lossless WebP; the tree's levels of detail, and
+// an impostor as its last; the picture's size and background; the sprite
+// sheet's views, their size and how far above level they look from; the
+// impostor's views a side and their size
+const exporting = renderer.inspector.createParameters("Export");
+exporting
+  .add(exportParams, "imageFormat", ["png", "webp"])
+  .name("image format");
+const modelFolder = exporting.addFolder("tree + LODs");
+modelFolder
+  .add(exportParams, "levels", 2, MAX_LEVELS, 1)
+  .name("levels of detail")
+  .onChange(countLevels);
+modelFolder
+  .add(exportParams, "impostorLevel")
+  .name("impostor level")
+  .onChange(countLevels);
+// Under them, how many vertices each level would hold, the first being the
+// tree itself. They're only counted while the folder is open, and when it
+// opens
+const IMPOSTOR_VERTICES = 4; // its one quad's
+const levelRows = Array.from({ length: MAX_LEVELS + 1 }, () => {
+  const name = createValueSpan();
+  const value = createValueSpan();
+  const row = new Item(name, value);
+  modelFolder.paramList.add(row);
+  setAvailable(row, false);
+  return { row, name, value };
+});
+function countLevels() {
+  if (!exporting.paramList.isOpen || !modelFolder.paramList.isOpen) return;
+  const counts = levelVertices({
+    count: exportParams.levels,
+    params,
+    grow: (lighter) => SPECIES[params.species].grow(lighter),
+    wood: tree.geometry,
+    clumps: grown.clumps,
+    foliage,
+  });
+  const levels = counts.map((vertices, i) => [`LOD${i}`, vertices]);
+  if (exportParams.impostorLevel) {
+    levels.push([`LOD${counts.length} impostor`, IMPOSTOR_VERTICES]);
+  }
+  levelRows.forEach(({ row, name, value }, i) => {
+    setAvailable(row, i < levels.length);
+    if (i >= levels.length) return;
+    name.textContent = levels[i][0];
+    value.textContent = `${levels[i][1].toLocaleString("en-US")} vertices`;
+  });
+}
+for (const group of [exporting, modelFolder]) {
+  group.paramList.itemRow.addEventListener("click", countLevels);
+}
+const pictureFolder = exporting.addFolder("picture");
+pictureFolder
+  .add(exportParams, "pictureSize", ["1024", "2048", "4096"])
+  .name("size");
+pictureFolder
+  .add(exportParams, "pictureAlpha")
+  .name("transparent (RGBA)");
+const spriteFolder = exporting.addFolder("sprite sheet");
+spriteFolder
+  .add(exportParams, "spriteAngles", ["4", "8", "16"])
+  .name("views");
+spriteFolder
+  .add(exportParams, "spriteSize", ["128", "256", "512"])
+  .name("frame size");
+spriteFolder
+  .add(exportParams, "spriteElevation", 0, 60, 1)
+  .name("elevation");
+const impostorFolder = exporting.addFolder("impostor");
+impostorFolder
+  .add(exportParams, "impostorFrames", ["6", "8", "12", "16"])
+  .name("views a side");
+impostorFolder
+  .add(exportParams, "impostorSize", ["128", "256", "512"])
+  .name("frame size");
+
 // Every control a theme sets, and its value in a theme. The page starts in
 // its first theme
 const themeBindings = [
@@ -636,7 +928,15 @@ const themeBindings = [
   [darknessControl, (theme) => theme.shadow.darkness],
 ];
 pickTheme(START_THEME);
-const sections = [treeSection, leafSection, breeze, lawn, fall, light];
+const sections = [
+  treeSection,
+  leafSection,
+  breeze,
+  lawn,
+  fall,
+  light,
+  exporting,
+];
 showSpecies();
 // The controls a theme or species sets, and where it puts them now
 const following = new Map([
@@ -664,6 +964,8 @@ addCopyConfig(renderer.inspector, sections);
 // brings back this tree. What a theme or species sets counts as changed
 // when it's away from where they put it, since the link puts them on first
 addShareLink(sections, debugControls, following);
+// Then the image kept from last time, for a link that asks for your image
+imageDrop.restore();
 // Now the address has landed, a theme picked eases in, and a species picked
 // grows in
 themeSeconds = 0.85;
@@ -705,7 +1007,8 @@ function matchPage() {
   );
 }
 
-renderer.setAnimationLoop(() => {
+renderer.setAnimationLoop(frame);
+function frame() {
   matchPage();
   keepAboveGround();
   controls.update();
@@ -713,4 +1016,4 @@ renderer.setAnimationLoop(() => {
   rebuildIfWanted();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));
-});
+}

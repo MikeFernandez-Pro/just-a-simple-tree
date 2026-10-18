@@ -47,10 +47,11 @@ function addStyle() {
 }
 
 // A row of stickers, one per choice, each showing its content (text or an
-// SVG) and named for screen readers and on hover. Picking one calls onPick;
+// SVG) and named for screen readers and on hover, with hint after the name
+// on hover, like the keys stepping through them. Picking one calls onPick;
 // the one picked can't be picked again. Returns the row, and show, marking
 // a choice as the one picked
-export function createStickers({ className, choices, label, onPick }) {
+export function createStickers({ className, choices, label, hint = '', onPick }) {
   addStyle()
   const row = document.createElement('div')
   row.className = `stickers ${className}`
@@ -60,7 +61,8 @@ export function createStickers({ className, choices, label, onPick }) {
     button.type = 'button'
     if (content.startsWith('<svg')) button.innerHTML = content
     else button.textContent = content
-    button.title = name
+    button.title = hint ? `${name}  ${hint}` : name
+    button.dataset.key = name
     button.setAttribute('aria-label', label(name))
     // Let go of focus, so space makes a new tree instead of pressing this again
     button.addEventListener('click', () => {
