@@ -266,6 +266,7 @@ const shake = createShake({
   camera,
   falling,
   tree: [tree, wireframe, foliage.mesh, foliage.clumps],
+  leaves: foliage.mesh,
   crownCenter: foliage.uniforms.crownCenter,
 });
 function pickTheme(name) {

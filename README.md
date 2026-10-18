@@ -218,9 +218,12 @@ leaves.material = new THREE.MeshToonMaterial({
   willow's strands from where they hang, more towards their tips; **falling leaves**
   drift downwind and settle on the floor, simulated with a compute shader.
 - **A new tree**: **generate a new tree** at the bottom, or space, picks a
-  new seed. The old leaves blow away while the wood folds back into the
-  ground, then the new tree grows out from the trunk to the tips, its leaves
-  popping in last. Picking another species grows it in the same way.
+  new seed, at any time, even while a tree is still growing. The old leaves
+  blow away on the wind while the tree scales down into its foot. The
+  moment the tree is gone, the new one springs up out of the ground,
+  shooting up thin and overshooting short and wide before it settles, its
+  branches shooting out and its leaves popping on in a soft wave from the
+  trunk to the tips. Picking another species brings it up in the same way.
 - **Themes**: the round buttons along the top switch between blossom,
   spring, autumn, frost and night. Each sets the leaves, the wood, the
   grass, the background and the shadows. The new theme sweeps over the
@@ -277,7 +280,7 @@ sets them all again.
 | `grass.js` | the grass patch round the tree's foot |
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
-| `regenerate.js` | a new tree, from a new seed or species: the burst, and the wood and leaves growing |
+| `regenerate.js` | a new tree, from a new seed or species: the burst, the shrink and the springy pop |
 | `glb.js` | the GLB export |
 | `inspector-filter.js` | the filter box for the Inspector |
 | `inspector-tools.js` | the reset, copy link and copy config buttons, and the link itself |

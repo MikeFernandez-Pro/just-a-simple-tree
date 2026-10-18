@@ -1,100 +1,191 @@
-import { attribute, float, Fn, mix, positionGeometry, uniform } from 'three/tsl'
+import {
+  attribute,
+  cos,
+  float,
+  Fn,
+  mix,
+  positionGeometry,
+  uniform,
+} from "three/tsl";
 
 // A new tree, with a burst: the old leaves blow away on the wind while the
-// wood folds back into the ground, then the new tree grows out from the
-// trunk to the tips, its leaves popping in last. A new seed or a new species
-// both go this way. Falling leaves stop leaving the old tree, and start again
-// from the new one once it has grown
+// tree scales down into its foot. The moment the tree is gone, the new one
+// springs up out of the ground, taller
+// and thinner as it shoots up, shorter and wider as it overshoots, bouncing
+// to rest, while its branches shoot out and its leaves pop on in a quick
+// soft wave from the trunk to the tips. A new seed or a new species both
+// go this way. Falling leaves stop leaving the old tree, and start again from
+// the new one once it has grown
 
-// 0 bare ground, 1 fully grown
-export const growth = uniform(1)
+// 0 bare ground, 1 fully grown: the branches unfolding and the leaves popping
+export const growth = uniform(1);
 // 0 leaves on the tree, 1 blown away
-export const burst = uniform(0)
+export const burst = uniform(0);
+// The whole tree's size from its foot, across and up, which shake.js puts on
+// it with its own squash. The leaves blowing away keep their own size as the
+// wood shrinks under them, or they'd be pulled in after it
+export const treeSize = { width: 1, height: 1, leaves: true };
 
-const UNFOLD = 0.25 // how much of the growth each ring takes to unfold
+const UNFOLD = 0.25; // how much of the growth each ring takes to unfold
+const LEAF_SPREAD = 0.4; // of the growth, from the first leaf popping to the last starting
+const LEAF_POP = 1; // of the growth, each leaf's pop
+
+const BLOW_SECONDS = 1.6; // the old leaves blowing away, cut short when the new tree comes up
+const SHRINK_DELAY = 0; // seconds into the blow before the tree starts scaling down
+const SHRINK_SECONDS = 0.8;
+const ACROSS_SHARE = 0.4; // of the shrink's time, the width's: it goes in faster, as if the tree were sucked into its trunk
+const GROW_SECONDS = 0.9; // the branches unfolding and the leaves popping
+// The spring the new tree comes up on: its height a little stiffer than its
+// width, so it shoots up thin, then overshoots short and wide
+const UP_BOUNCE = 1.4; // bounces a second, its height
+const ACROSS_BOUNCE = 1.1; // bounces a second, its width
+const DAMPING = 0.4; // 0 bounces for ever, 1 settles with no bounce; 0.4 overshoots by a quarter
 
 // How far along its own growth a point of the wood is, eased
 function grownBy(birth) {
-  return growth.mul(1 + UNFOLD).sub(birth).div(UNFOLD).smoothstep(0, 1)
+  return growth
+    .mul(1 + UNFOLD)
+    .sub(birth)
+    .div(UNFOLD)
+    .smoothstep(0, 1);
 }
 
 // The wood: each ring slides out from its branch's root to its place, and
 // widens as it goes
 export const grownWood = Fn(() => {
-  const center = attribute('growCenter', 'vec3')
-  const root = attribute('growRoot', 'vec3')
-  const k = grownBy(attribute('birth', 'float'))
-  return mix(root, center, k).add(positionGeometry.sub(center).mul(k))
-})
+  const center = attribute("growCenter", "vec3");
+  const root = attribute("growRoot", "vec3");
+  const k = grownBy(attribute("birth", "float"));
+  return mix(root, center, k).add(positionGeometry.sub(center).mul(k));
+});
 
-// A leaf card's size: none until its branch has arrived, then a quick pop
-// with a little overshoot, each card on its own beat
+// A leaf card's size: none until the wave reaches it, then a soft pop,
+// swelling a quarter past its size halfway through and settling back, each
+// card on its own beat. It rises gently and lands on its size exactly
 export function grownLeaf(birth, jitter) {
   const t = growth
-    .mul(1 + UNFOLD)
-    .sub(birth.add(UNFOLD * 0.6).add(jitter.mul(0.08)))
-    .div(0.12)
-    .clamp(0, 1)
-  const s = t.sub(1)
-  return float(1).add(s.mul(s).mul(s.mul(2.70158).add(1.70158)))
+    .sub(birth.mul(LEAF_SPREAD).add(jitter.mul(0.1)))
+    .div(LEAF_POP)
+    .clamp(0, 1);
+  const left = t.oneMinus();
+  return float(1).sub(left.mul(left).mul(cos(t.mul(Math.PI * 2))));
 }
 
-const easeIn = (t) => t ** 3
-const easeOut = (t) => 1 - (1 - t) ** 3
+const easeOut = (t) => 1 - (1 - t) ** 3;
 
 // hold(true) keeps the tree as it is, whatever changes, until hold(false)
 // rebuilds it with the latest. A change that wants a new tree is made, then
-// regrow called: the tree held shows until it has folded away
+// regrow called: the tree held shows until it has shrunk away
 export function createRegenerate({ hold, falling }) {
-  let wanted = false
-  let running = null
+  let wanted = false;
+  let running = null;
 
   function tween(seconds, onUpdate, stop = () => false) {
     return new Promise((resolve) => {
-      const start = performance.now()
+      const start = performance.now();
       const frame = (now) => {
-        if (stop()) return resolve()
-        const t = Math.min((now - start) / 1000 / seconds, 1)
-        onUpdate(t)
-        if (t < 1) requestAnimationFrame(frame)
-        else resolve()
-      }
-      requestAnimationFrame(frame)
-    })
+        if (stop()) return resolve();
+        const t = Math.min((now - start) / 1000 / seconds, 1);
+        onUpdate(t);
+        if (t < 1) requestAnimationFrame(frame);
+        else resolve();
+      };
+      requestAnimationFrame(frame);
+    });
   }
 
-  // Another change while the old tree folds lands with the swap. One while
-  // the new tree grows folds it back from where it got to, sooner the less
-  // it had grown, and grows the latest
+  // The new tree coming up from nothing on its springs, until it rests or
+  // another change comes. A frame's step is at most a thirtieth of a second,
+  // in small steps, so a hidden tab doesn't come back to a spring flung off
+  function springUp() {
+    return new Promise((resolve) => {
+      const up = { at: 0, speed: 0, omega: UP_BOUNCE * Math.PI * 2 };
+      const across = { at: 0, speed: 0, omega: ACROSS_BOUNCE * Math.PI * 2 };
+      let last = performance.now();
+      const frame = (now) => {
+        let left = Math.min((now - last) / 1000, 1 / 30);
+        last = now;
+        while (left > 0) {
+          const dt = Math.min(left, 1 / 240);
+          for (const s of [up, across]) {
+            s.speed +=
+              (-s.omega * s.omega * (s.at - 1) -
+                2 * DAMPING * s.omega * s.speed) *
+              dt;
+            s.at += s.speed * dt;
+          }
+          left -= dt;
+        }
+        treeSize.height = Math.max(up.at, 0);
+        treeSize.width = Math.max(across.at, 0);
+        const resting = [up, across].every(
+          (s) => Math.abs(s.at - 1) < 1e-3 && Math.abs(s.speed) < 1e-2,
+        );
+        if (wanted || resting) {
+          if (resting) treeSize.width = treeSize.height = 1;
+          return resolve();
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    });
+  }
+
+  // Another change while the old tree goes lands with the swap. One while the
+  // new tree comes up sends it away from wherever it got to, and brings up
+  // the latest
   async function run() {
-    falling.uniforms.spawning.value = 0
+    falling.uniforms.spawning.value = 0;
     while (wanted) {
-      const from = growth.value
-      const pace = Math.max(from, 0.25) // of the whole fold's time, for a tree part grown
+      const from = growth.value;
+      const pace = Math.max(from, 0.25); // of the whole shrink's time, for a tree part grown
 
-      // The leaves blow away; half a second in, the wood starts folding back
-      const blow = tween(1.6 * pace, (t) => (burst.value = easeOut(t)))
-      await tween(0.5 * pace, () => {})
-      await tween(1.1 * pace, (t) => (growth.value = from * (1 - easeIn(t))))
-      await blow
+      // The leaves blow away; a moment in, the tree scales down into its
+      // foot from wherever it was, fast at first and slowing as it goes, its
+      // width pulled in to the trunk quicker than its height comes down. The
+      // leaves keep their own size, and stop blowing when the new tree comes
+      treeSize.leaves = false;
+      let swapped = false;
+      tween(
+        BLOW_SECONDS * pace,
+        (t) => (burst.value = easeOut(t)),
+        () => swapped,
+      );
+      await tween(SHRINK_DELAY * pace, () => {});
+      const { width, height } = treeSize;
+      await tween(SHRINK_SECONDS * pace, (t) => {
+        treeSize.width = width * (1 - easeOut(Math.min(t / ACROSS_SHARE, 1)));
+        treeSize.height = height * (1 - easeOut(t));
+      });
 
-      // Nothing of the old tree shows: swap in the new one, and grow it
-      wanted = false
-      hold(false)
-      burst.value = 0
-      await tween(3.2, (t) => (growth.value = easeOut(t)), () => wanted)
+      // The old tree has shrunk away: swap in the new one, and bring it up
+      swapped = true;
+      wanted = false;
+      hold(false);
+      burst.value = 0;
+      growth.value = 0;
+      treeSize.leaves = true;
+      const grow = tween(
+        GROW_SECONDS,
+        (t) => (growth.value = 1 - (1 - t) ** 2),
+        () => wanted,
+      );
+      await springUp();
+      await grow;
     }
-    falling.uniforms.spawning.value = 1
-    running = null
+    growth.value = 1;
+    treeSize.leaves = true;
+    falling.uniforms.spawning.value = 1;
+    running = null;
   }
 
   // Resolves once the newest tree has grown
   function regrow() {
-    hold(true)
-    wanted = true
-    running ??= run()
-    return running
+    hold(true);
+    wanted = true;
+    running ??= run();
+    return running;
   }
 
-  return { regrow }
+  return { regrow };
 }

@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu'
 import { wind } from './wind.js'
 import { arrival } from './transition.js'
+import { treeSize } from './regenerate.js'
 
 // A theme landing hits the tree: the moment the sweep's front reaches the
 // crown on screen, everything goes off at once. The tree squashes, the camera
@@ -31,7 +32,7 @@ const GUST = 2 // how much harder it blows at its strongest: 2 is three times
 const GUST_SECONDS = 2.5 // how long the gust takes to rise and die away
 const GUST_DELAY = 0.6 // seconds after a hit before it blows, while the knocked leaves drop
 
-export function createShake({ camera, falling, tree, crownCenter }) {
+export function createShake({ camera, falling, tree, leaves, crownCenter }) {
   let from = -Infinity // when the last hit landed
   const hits = [] // when the fronts still on their way reach the crown
   const crown = new THREE.Vector3()
@@ -80,9 +81,16 @@ export function createShake({ camera, falling, tree, crownCenter }) {
     }
     if (Math.abs(squash) < 1e-4 && Math.abs(speed) < 1e-3) squash = speed = 0
     // Shorter or taller from its foot, as much wider or thinner, so it keeps
-    // its volume
+    // its volume, on top of the size a new tree comes up at (regenerate.js).
+    // Never quite nothing, so its matrices still turn round. The leaf cards
+    // only take that size while they're on the tree
     const height = 1 + squash
-    for (const object of tree) object.scale.set(1 / Math.sqrt(height), height, 1 / Math.sqrt(height))
+    for (const object of tree) {
+      const size = object !== leaves || treeSize.leaves ? treeSize : { width: 1, height: 1 }
+      const across = Math.max(size.width / Math.sqrt(height), 1e-4)
+      const up = Math.max(size.height * height, 1e-4)
+      object.scale.set(across, up, across)
+    }
 
     const t = ((now - from) / 1000 - GUST_DELAY) / GUST_SECONDS
     wind.gust.value = t >= 0 && t < 1 ? GUST * THREE.MathUtils.smoothstep(t, 0, 0.12) * (1 - t) ** 2 : 0

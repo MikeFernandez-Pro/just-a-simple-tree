@@ -134,9 +134,10 @@ export function createFoliage() {
     const flatNormal = place(rotate(normalGeometry, rock))
     normalLocal.assign(normalize(mix(flatNormal, normalize(wrapped.sub(clump)), u.roundness)))
     // A new tree: the card pops in once its branch has grown there, and a
-    // burst blows it away downwind, tumbling and shrinking as it goes
+    // burst blows it away downwind, tumbling and shrinking as it goes. While
+    // it blows away it keeps its size, as the wood folds back under it
     const jitter = hash(instanceIndex.add(5))
-    const size = grownLeaf(e.x, jitter)
+    const size = burst.greaterThan(0).select(float(1), grownLeaf(e.x, jitter))
     const card = mix(flat, wrapped, u.roundness).sub(center)
     const outwards = normalize(center.sub(u.crownCenter))
     const blown = outwards
