@@ -79,6 +79,17 @@ const set = (layer, value) => (typeof value === 'number' ? (layer.value = value)
 const starts = Array(SLOTS).fill(null)
 let seconds = 1
 const easeInOut = (t) => (t < 0.5 ? 2 * t * t : 1 - (2 - 2 * t) ** 2 / 2)
+const easeInOutInverse = (w) => (w < 0.5 ? Math.sqrt(w / 2) : 1 - Math.sqrt(2 * (1 - w)) / 2)
+
+// How far through a sweep, 0 to 1 of its time, its front reaches a point on
+// the screen, given in normalised device coordinates (x right, y up, -1 to 1)
+// with the screen's width / height. The same diagonal as `at`, its noise left
+// out, so the front's ragged edge reaches it a touch either side
+export function arrival(x, y, aspect) {
+  const along = (((x + 1) / 2) * aspect + (y + 1) / 2) / (aspect + 1)
+  const wipe = (along + RAGGED + GLOW) / (1 + 2 * (RAGGED + GLOW))
+  return easeInOutInverse(Math.min(Math.max(wipe, 0), 1))
+}
 
 function frame(now) {
   for (let i = 0; i < SLOTS; i++) {

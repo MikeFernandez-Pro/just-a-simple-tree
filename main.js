@@ -253,15 +253,21 @@ function addRamp(folder, uniforms, names) {
   );
 }
 // A theme picked from the panel or a button sweeps in from the bottom left
-// (transition.js), and the camera shakes a little as it does, a gust blows
-// through the tree and knocks a handful of leaves off it (shake.js). Picks
-// stack: each sends its own sweep after the ones still going. The panel's
-// controls take the theme at once, through what it binds, so they show it
-// and the address keeps it. While the page opens, a theme lands at once: the
-// first one, then one from its address
+// (transition.js). When its front reaches the tree, it hits it: the tree
+// squashes and bounces back, the camera is knocked and shakes, and a gust
+// blows through the tree and knocks a handful of leaves off it (shake.js).
+// Picks stack: each sends its own sweep after the ones still going, and each
+// front lands its own hit. The panel's controls take the theme at once,
+// through what it binds, so they show it and the address keeps it. While the
+// page opens, a theme lands at once: the first one, then one from its address
 let themeSeconds = 0;
 let themeName = START_THEME;
-const shake = createShake({ camera, falling });
+const shake = createShake({
+  camera,
+  falling,
+  tree: [tree, wireframe, foliage.mesh, foliage.clumps],
+  crownCenter: foliage.uniforms.crownCenter,
+});
 function pickTheme(name) {
   themeName = name;
   themeButtons.show(name);
@@ -702,7 +708,7 @@ renderer.setAnimationLoop(() => {
   matchPage();
   keepAboveGround();
   controls.update();
-  shake.blow(performance.now());
+  shake.update(performance.now());
   rebuildIfWanted();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));

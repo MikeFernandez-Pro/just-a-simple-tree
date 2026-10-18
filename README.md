@@ -223,10 +223,13 @@ leaves.material = new THREE.MeshToonMaterial({
   popping in last. Picking another species grows it in the same way.
 - **Themes**: the round buttons along the top switch between blossom,
   spring, autumn, frost and night. Each sets the leaves, the wood, the
-  grass, the background and the shadows. The new theme sweeps over the screen from the
-  bottom left to the top right behind a ragged Perlin-noise front with a
-  bright edge, while the camera shakes a little. Picking again mid-sweep
-  sends a new front after the ones still going.
+  grass, the background and the shadows. The new theme sweeps over the
+  screen from the bottom left to the top right behind a ragged Perlin-noise
+  front with a bright edge. When the front reaches the tree it hits it: the
+  tree squashes and bounces back, the camera is knocked and shakes, and a
+  batch of leaves drops straight down until a gust catches them and blows
+  them sideways. Picking again mid-sweep sends a new front after the ones
+  still going, and each front knocks its own leaves off.
 - **Export**: **export tree (.glb)** saves the wood and the leaves, as
   described in [Using the export](#using-the-export).
   The grass, the floor and the falling leaves stay in the app.
@@ -260,7 +263,7 @@ sets them all again.
 | `vertex-count.js` | the card counting the vertices the export will write |
 | `stickers.js` | the round sticker buttons both rows are made of |
 | `transition.js` | the sweep from one theme to the next |
-| `shake.js` | a theme landing: the camera's shake, the gust and the leaves knocked off |
+| `shake.js` | a theme's front hitting the tree: its squash and bounce, the camera's shake, the gust and the leaves knocked off |
 | `icons/` | the theme buttons' icons |
 | `docs/` | the GIF at the top of this README |
 | `wood.js` | the wood every species is built from: branches as tubes, and the growing data |

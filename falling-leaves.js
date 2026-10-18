@@ -36,10 +36,14 @@ import { blowing, downwind, wind } from './wind.js'
 // compute shader each frame, a life progress per leaf, scaled in and out,
 // tumbling by their own position). Each leaf falls from inside the crown,
 // drifts downwind, lands on the floor, keeps sliding downwind as it settles
-// flat, then shrinks away and starts again.
+// flat, then shrinks away and starts again. A shake knocks a batch more off:
+// the tree is hit from above, so they drop straight down at first, and the
+// wind only takes them once they've slowed.
 
 const MAX_LEAVES = 4000
 const LOOSE = 600 // leaves a shake knocks off the tree at once, on top of the amount
+const DROP = 2.5 // metres per second a knocked leaf falls faster than the rest, as it's knocked
+const DROP_SECONDS = 1 // how long a knocked leaf falls straight down before the wind takes it
 const FLOOR = 0.01 // the height a leaf lies at
 const LANDING = 0.9 // metres above the floor over which a leaf levels out
 const ROCK = 1.2 // how far a falling leaf rocks either way, in radians
@@ -59,6 +63,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     size: uniform(0.17), // a leaf's width, in metres
     amount: uniform(277), // how many fall at once
     spawning: uniform(1), // 0 while a new tree grows: no leaf leaves it
+    looseFrom: uniform(0), // where the next shake's batch starts among the leaves past the amount
   }
   const u = uniforms
 
@@ -74,6 +79,8 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   const positions = instancedArray(MAX_LEAVES, 'vec3')
   const progresses = instancedArray(MAX_LEAVES, 'float')
   const settled = instancedArray(MAX_LEAVES, 'float')
+  // 1 as a shake knocks a leaf off, falling to 0 as the wind takes it
+  const knocked = instancedArray(MAX_LEAVES, 'float')
 
   // A random point inside the crown, new each time it's asked for
   const spawn = (seed) => {
@@ -91,6 +98,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
   const leave = () => {
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(tick)))
     settled.element(instanceIndex).assign(0)
+    knocked.element(instanceIndex).assign(0)
   }
 
   // Start every free leaf somewhere in the crown, at a random point of its
@@ -100,12 +108,14 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7)))
     progresses.element(instanceIndex).assign(select(free(), progress, progress.negate()))
     settled.element(instanceIndex).assign(0)
+    knocked.element(instanceIndex).assign(0)
   })().compute(MAX_LEAVES)
 
   const step = Fn(() => {
     const position = positions.element(instanceIndex)
     const progress = progresses.element(instanceIndex)
     const flat = settled.element(instanceIndex)
+    const knock = knocked.element(instanceIndex)
     const dt = deltaTime.min(0.05)
 
     // Life: when it's over, start again from a new point in the crown. A leaf
@@ -131,12 +141,15 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
 
     If(position.y.greaterThan(FLOOR), () => {
       // In the air: fall, drift downwind, flutter in the turbulence. Near the
-      // floor the leaf has levelled out and, flat, falls slower, gliding in
+      // floor the leaf has levelled out and, flat, falls slower, gliding in.
+      // A knocked leaf drops faster and straight at first, the wind and the
+      // turbulence taking it over as the knock wears off
       const level = levelling(position.y)
       const turbulence = mx_noise_vec3(position.mul(wind.frequency.mul(4)).add(time.mul(wind.speed))).mul(0.8)
-      const fall = u.fallSpeed.mul(float(1).sub(level.mul(0.5)))
-      const drift = downwind.mul(blowing.mul(AIR_DRIFT)).add(turbulence).add(vec3(0, fall.negate(), 0))
-      position.addAssign(drift.mul(dt))
+      const fall = u.fallSpeed.mul(float(1).sub(level.mul(0.5))).add(knock.mul(DROP))
+      const sideways = downwind.mul(blowing.mul(AIR_DRIFT)).add(turbulence).mul(float(1).sub(knock))
+      position.addAssign(sideways.add(vec3(0, fall.negate(), 0)).mul(dt))
+      knock.assign(knock.sub(dt.div(DROP_SECONDS)).max(0))
       position.y.assign(position.y.max(FLOOR))
     }).Else(() => {
       // On the floor: it lands with its air drift and slows smoothly to a
@@ -148,23 +161,21 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     })
   })().compute(MAX_LEAVES)
 
-  // A shake knocks leaves off the tree all at once: the ones waiting just past
-  // the amount leave the crown together, a little apart in their lives so
-  // they don't vanish together, fall once and wait again. None while a new
-  // tree grows
+  // A shake knocks leaves off the tree all at once: a batch of the leaves past
+  // the amount leaves the crown together, a little apart in their lives so
+  // they don't vanish together, falls once and waits again. Each shake takes
+  // the next batch round those leaves, so shakes close together each knock
+  // their own off; only a leaf from many shakes ago, still lying there, goes
+  // back up. None while a new tree grows
   const loose = Fn(() => {
     const index = instanceIndex.toFloat()
-    const progress = progresses.element(instanceIndex)
-    If(
-      spawning()
-        .and(index.greaterThanEqual(u.amount))
-        .and(index.lessThan(u.amount.add(LOOSE)))
-        .and(progress.lessThan(0)),
-      () => {
-        progress.assign(hash(instanceIndex.add(tick).add(101)).mul(0.1))
-        leave()
-      },
-    )
+    const pool = float(MAX_LEAVES).sub(u.amount).max(1)
+    const place = index.sub(u.amount).sub(u.looseFrom).add(pool).mod(pool)
+    If(spawning().and(index.greaterThanEqual(u.amount)).and(place.lessThan(LOOSE)), () => {
+      progresses.element(instanceIndex).assign(hash(instanceIndex.add(tick).add(101)).mul(0.1))
+      leave()
+      knocked.element(instanceIndex).assign(1)
+    })
   })().compute(MAX_LEAVES)
 
   // Unlit: each leaf is one flat colour, whatever its turn and whatever
@@ -214,6 +225,7 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
 
   let started = false
   let loosening = false
+  let nextFrom = 0
   function update(renderer) {
     if (!started) {
       renderer.compute(init)
@@ -222,13 +234,18 @@ export function createFallingLeaves({ colors, crownCenter, crownSize }) {
     if (loosening) {
       renderer.compute(loose)
       loosening = false
+      u.looseFrom.value = nextFrom
     }
     renderer.compute(step)
   }
 
-  // Knocks a handful of leaves off the tree on the next frame
+  // Knocks a handful of leaves off the tree on the next frame, the next batch
+  // round the leaves past the amount
   function shake() {
+    const pool = Math.max(MAX_LEAVES - u.amount.value, 1)
+    u.looseFrom.value = u.looseFrom.value % pool
     loosening = true
+    nextFrom = (u.looseFrom.value + LOOSE) % pool
   }
 
   function setTexture(texture) {
