@@ -18,7 +18,8 @@ export const MAX_ATLAS = 4096 // the most pixels a side of an impostor's atlas o
 
 export function createCapture({ renderer, scene, loop, scenery, tree }) {
   // Draws each camera's view into its place in a 2D context: at(i) gives
-  // the top left corner of the i-th, width x height pixels
+  // the top left corner of the i-th, and its size if it isn't width x
+  // height pixels
   async function shoot(cameras, { width, height, transparent, bare, into, at }) {
     const scale = Math.max(width, height) * 2 <= MAX_DRAWN ? 2 : 1
     const restore = still({ transparent, bare })
@@ -29,8 +30,8 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
     try {
       for (let i = 0; i < cameras.length; i++) {
         renderer.render(scene, cameras[i])
-        const [x, y] = at(i)
-        into.drawImage(renderer.domElement, 0, 0, width * scale, height * scale, x, y, width, height)
+        const [x, y, w = width, h = height] = at(i)
+        into.drawImage(renderer.domElement, 0, 0, width * scale, height * scale, x, y, w, h)
         if (i % BATCH === BATCH - 1) await new Promise((resolve) => setTimeout(resolve))
       }
     } finally {
@@ -138,7 +139,9 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
   // An impostor's atlas: frames x frames views of the tree, each looking at
   // the sphere round it, from directions spread over the sky above it by a
   // hemi-octahedral map. Frame (i, j), i from the left and j from the
-  // bottom, is seen from impostorDirection(i, j, frames)
+  // bottom, is seen from impostorDirection(i, j, frames). The atlas is size
+  // pixels a side, whatever frames is, so a frame may not be a whole number
+  // of pixels: each is drawn a little bigger and fitted into its square
   async function impostor({ center, radius }, { frames, size }) {
     const cameras = []
     for (let j = 0; j < frames; j++) {
@@ -150,9 +153,11 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
         cameras.push(camera)
       }
     }
-    const canvas = canvasOf(frames * size, frames * size)
-    const at = (n) => [(n % frames) * size, (frames - 1 - Math.floor(n / frames)) * size]
-    await shoot(cameras, { width: size, height: size, transparent: true, bare: true, into: canvas.getContext('2d'), at })
+    const canvas = canvasOf(size, size)
+    const frame = size / frames
+    const at = (n) => [(n % frames) * frame, (frames - 1 - Math.floor(n / frames)) * frame, frame, frame]
+    const drawn = Math.ceil(frame)
+    await shoot(cameras, { width: drawn, height: drawn, transparent: true, bare: true, into: canvas.getContext('2d'), at })
     return canvas
   }
 

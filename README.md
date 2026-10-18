@@ -26,14 +26,19 @@ back to WebGL2.
 images; hover one to see what it's for. The panel's **Export** section sets
 how each is made, and **export settings…** at the bottom of the menu opens
 it. Its **image format** saves the texture and the sprite sheet as PNG or
-lossless WebP; a browser that can't write WebP, like Safari, saves a PNG:
+lossless WebP; a browser that can't write WebP, like Safari, saves a PNG.
+Its **GLB textures** picks how the GLBs carry their textures, a PNG, a
+256-colour PNG, a WebP or a KTX2 (UASTC or ETC1S). See [GLB textures](#glb-textures).
 
 - **tree** (`.glb`): the tree as you see it, as meshes, below.
 - **tree + LODs** (`.glb`): the tree and lighter copies of it for farther
   away, 2 to 4 levels, 3 to start with, and the impostor as the last level
-  unless **impostor level** is unticked. See [Levels of detail](#levels-of-detail).
+  unless **impostor level** is unticked. That impostor has its own views
+  a side and atlas size, apart from the **impostor** export's. See
+  [Levels of detail](#levels-of-detail).
 - **impostor** (`.glb`): one quad and an atlas of views from all over the sky
-  above the tree, for trees far away. See [Impostors](#impostors).
+  above the tree, for trees far away. Its atlas is 512, 1024, 2048 or 4096
+  pixels a side, 1024 to start with. See [Impostors](#impostors).
 - **texture** (`.png` or `.webp`): the view from the camera, the floor's shadow, the
   grass and the falling leaves included, 1024, 2048 or 4096 pixels on its
   long side. It's RGB on the theme's background, or RGBA on a clear one
@@ -199,6 +204,45 @@ leaves.material = new THREE.MeshToonMaterial({
 })
 ```
 
+### GLB textures
+
+Almost all of an impostor's weight is its atlas. **GLB textures** sets how
+the GLBs write it and the leaves' cut-out:
+
+| choice | file | an 8 × 8 impostor, 1024 pixels a side | reads in |
+|---|---|---|---|
+| **png** | PNG, every pixel as drawn | 930 KB | anything |
+| **png 256 colors** | PNG with a palette of 256 colours, no dithering | 270 KB | anything |
+| **webp** | lossy WebP, its alpha lossless, in `EXT_texture_webp` | 210 KB | three.js, Babylon.js, Godot |
+| **ktx2 uastc** | Basis Universal UASTC with mipmaps, squeezed with Zstandard, in `KHR_texture_basisu` | 550 KB | three.js, Babylon.js, Godot, Unity with glTFast and KTX for Unity |
+| **ktx2 etc1s** | Basis Universal ETC1S with mipmaps, in `KHR_texture_basisu` | 195 KB | the same |
+
+The cel bands come through the 256 colours well, though the soft shading
+between them may band a little. Only KTX2 stays compressed on the GPU, so
+it also takes about a quarter of the memory, either kind. UASTC keeps
+nearly all the detail; ETC1S is the smallest file but turns fine detail
+into blocks of colour, which only passes for a tree far away. Under the
+transparent pixels, every format keeps a colour rather than black: the
+nearest leaf's for a few pixels round the edges, and the mean colour
+beyond. So the leaves don't darken at their edges as the texture shrinks
+into its mipmaps, and every format shades the same. A KTX2 texture is never more
+than 2048 pixels a side: the encoder takes no more, so a 4096 atlas is
+halved. The encoder is a few megabytes and only loads the first time it's
+used. A GLB with WebP or KTX2 textures lists the extension as required, so a
+reader that doesn't know it refuses the file instead of showing it blank. In
+three.js, `GLTFLoader` reads WebP on its own, and KTX2 with a `KTX2Loader`:
+
+```js
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
+
+const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer)
+const gltf = await new GLTFLoader().setKTX2Loader(ktx2).loadAsync('oak-8967-impostor.glb')
+```
+
+`setTranscoderPath` points to a copy of the files in
+`three/examples/jsm/libs/basis/`.
+
 ### Levels of detail
 
 **tree + LODs** writes the tree as nodes `tree_LOD0`, `tree_LOD1` and so
@@ -248,6 +292,10 @@ out:
   decodes from `(i, j) / (frames - 1) * 2 - 1`: the corners and edges look
   from the horizon, the middle from straight above.
 - `center` and `radius`: the sphere round the tree that every view frames.
+
+The atlas is as many pixels a side as picked, whatever the views a side, so
+with 6 or 12 a frame doesn't fill a whole number of pixels. Each frame
+still covers exactly `1 / frames` of the atlas in UV space.
 
 A plain viewer shows the view from the front. `impostor` turns the quad
 towards the camera and shows the view nearest its direction. The views
@@ -481,6 +529,7 @@ sets them all again.
 | `falling-leaves.js` | the falling leaves, on the GPU |
 | `regenerate.js` | a new tree, from a new seed or species: the burst, the shrink and the springy pop |
 | `glb.js` | the GLB export: the tree, its levels of detail and the impostor |
+| `textures.js` | how a GLB writes its textures: a PNG, a 256-colour PNG, a WebP or a KTX2 |
 | `lod.js` | the levels of detail, and the tree's bounds |
 | `capture.js` | the texture, the sprite sheet and the impostor's atlas, drawn from the scene |
 | `inspector-filter.js` | the filter box for the Inspector |

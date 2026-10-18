@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "ktx2-encoder": "^0.6.0",
     "three": "^0.186.1"
   },
   "devDependencies": {

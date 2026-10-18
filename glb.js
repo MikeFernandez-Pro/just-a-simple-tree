@@ -3,6 +3,7 @@ import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
 import { download } from './capture.js'
 import { LEAF_STOPS } from './foliage.js'
 import { BARK_STOPS } from './shading.js'
+import { encodeTexture, textureWriter } from './textures.js'
 
 // The tree as a GLB ready for a plain MeshStandardMaterial anywhere: the
 // wood, and the leaf cards as they stand with no wind, lit by the clumps'
@@ -56,8 +57,9 @@ function cutout(leaves, colors) {
 }
 
 // levels: each { wood, leaves }, the wood's geometry and the leaves baked.
-// impostor: { atlas, frames, center, radius }, or none
-export async function exportGlb({ levels, impostor, foliage, barkColors, species, seed, name }) {
+// impostor: { atlas, frames, center, radius }, or none. textures: how the
+// textures are written, one of textures.js' GLB_TEXTURES
+export async function exportGlb({ levels, impostor, foliage, barkColors, species, seed, name, textures = 'png' }) {
   const scene = new THREE.Scene()
   scene.name = 'Just a simple tree'
   scene.userData = { species, seed }
@@ -139,6 +141,14 @@ export async function exportGlb({ levels, impostor, foliage, barkColors, species
     scene.add(...nodes)
     plugins.push((writer) => lodWriter(writer, nodes))
   }
+
+  // Every texture is encoded first, by textures.js rather than the
+  // exporter, so the colour under its transparent pixels comes through
+  const maps = new Set()
+  scene.traverse((object) => object.material?.map && maps.add(object.material.map))
+  const encoded = new Map()
+  for (const map of maps) encoded.set(map, await encodeTexture(map, textures))
+  plugins.push((writer) => textureWriter(writer, encoded))
 
   const exporter = new GLTFExporter()
   for (const plugin of plugins) exporter.register(plugin)

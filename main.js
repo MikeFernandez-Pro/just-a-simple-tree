@@ -31,6 +31,7 @@ import { createGrass } from "./grass.js";
 import { createRegenerate } from "./regenerate.js";
 import { createBar } from "./bar.js";
 import { exportGlb } from "./glb.js";
+import { GLB_TEXTURES } from "./textures.js";
 import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
 import { bounds, levelsOfDetail, levelVertices, MAX_LEVELS } from "./lod.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
@@ -516,10 +517,15 @@ woodControls.push(wireframeControl, woodColors);
 // lighter copies for farther away and an impostor last if asked; a texture
 // from the camera; a sprite sheet of views round it; or an impostor, a quad
 // showing an atlas of views over the sky above it. How each goes is set in
-// the panel's Export section, which the menu's last choice opens
+// the panel's Export section, which the menu's last choice opens. The
+// impostor level of tree + LODs has an atlas of its own, apart from the
+// impostor's
 const exportParams = {
+  glbTextures: "png", // how the GLBs' textures are written, one of GLB_TEXTURES
   levels: 3, // tree + LODs': the tree and its lighter copies
   impostorLevel: true,
+  levelFrames: "8", // the impostor level's views a side
+  levelAtlas: "1024", // and its atlas's pixels a side
   textureSize: "2048",
   imageFormat: "png", // the texture's and the sprite sheet's, png or webp
   textureAlpha: false, // RGBA on a clear background, rather than RGB on the theme's
@@ -527,8 +533,11 @@ const exportParams = {
   spriteSize: "256",
   spriteElevation: 10, // degrees above level
   impostorFrames: "8",
-  impostorSize: "256",
+  impostorAtlas: "1024",
 };
+// An impostor's atlas sizes, pixels a side, and its views a side
+const ATLAS_SIZES = ["512", "1024", "2048", "4096"];
+const IMPOSTOR_FRAMES = ["6", "8", "12", "16"];
 const capture = createCapture({
   renderer,
   scene,
@@ -538,15 +547,11 @@ const capture = createCapture({
 });
 const fileName = (kind, extension) =>
   `${params.species}-${params.seed}${kind ? `-${kind}` : ""}.${extension}`;
-// The impostor's atlas, its frames no bigger than the atlas allows
-async function impostorOf() {
+// An impostor's atlas, frames views a side in size pixels a side
+async function impostorOf(frames, size) {
   const sphere = bounds(tree.geometry, foliage);
-  const frames = Number(exportParams.impostorFrames);
-  const size = Math.min(
-    Number(exportParams.impostorSize),
-    Math.floor(MAX_ATLAS / frames),
-  );
-  const atlas = await capture.impostor(sphere, { frames, size });
+  frames = Number(frames);
+  const atlas = await capture.impostor(sphere, { frames, size: Number(size) });
   return { atlas, frames, center: sphere.center, radius: sphere.radius };
 }
 const EXPORTS = [
@@ -561,6 +566,7 @@ const EXPORTS = [
         barkColors,
         species: params.species,
         seed: params.seed,
+        textures: exportParams.glbTextures,
       }),
   },
   {
@@ -577,12 +583,15 @@ const EXPORTS = [
           clumps: grown.clumps,
           foliage,
         }),
-        impostor: exportParams.impostorLevel ? await impostorOf() : null,
+        impostor: exportParams.impostorLevel
+          ? await impostorOf(exportParams.levelFrames, exportParams.levelAtlas)
+          : null,
         foliage,
         barkColors,
         species: params.species,
         seed: params.seed,
         name: fileName("lods", "glb"),
+        textures: exportParams.glbTextures,
       }),
   },
   {
@@ -633,12 +642,16 @@ const EXPORTS = [
     run: async () =>
       exportGlb({
         levels: [],
-        impostor: await impostorOf(),
+        impostor: await impostorOf(
+          exportParams.impostorFrames,
+          exportParams.impostorAtlas,
+        ),
         foliage,
         barkColors,
         species: params.species,
         seed: params.seed,
         name: fileName("impostor", "glb"),
+        textures: exportParams.glbTextures,
       }),
   },
 ];
@@ -849,14 +862,18 @@ toneFolder
 toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 
 // How the export menu's choices are made: the images' format, PNG or a
-// lossless WebP; the tree's levels of detail, and
-// an impostor as its last; the texture's size and background; the sprite
-// sheet's views, their size and how far above level they look from; the
-// impostor's views a side and their size
+// lossless WebP, and the GLBs' textures' (see textures.js); the tree's
+// levels of detail, and an impostor as its last, with its atlas; the
+// texture's size and background; the sprite sheet's views, their size and
+// how far above level they look from; the impostor's views a side and its
+// atlas's size
 const exporting = renderer.inspector.createParameters("Export");
 exporting
   .add(exportParams, "imageFormat", ["png", "webp"])
   .name("image format");
+exporting
+  .add(exportParams, "glbTextures", GLB_TEXTURES)
+  .name("GLB textures");
 const modelFolder = exporting.addFolder("tree + LODs");
 modelFolder
   .add(exportParams, "levels", 2, MAX_LEVELS, 1)
@@ -865,7 +882,19 @@ modelFolder
 modelFolder
   .add(exportParams, "impostorLevel")
   .name("impostor level")
-  .onChange(countLevels);
+  .onChange((v) => {
+    for (const control of levelAtlasControls) setAvailable(control, v);
+    countLevels();
+  });
+// The impostor level's atlas, shown only while there's one
+const levelAtlasControls = [
+  modelFolder
+    .add(exportParams, "levelFrames", IMPOSTOR_FRAMES)
+    .name("impostor views a side"),
+  modelFolder
+    .add(exportParams, "levelAtlas", ATLAS_SIZES)
+    .name("impostor atlas size"),
+];
 // Under them, how many vertices each level would hold, the first being the
 // tree itself. They're only counted while the folder is open, and when it
 // opens
@@ -921,11 +950,11 @@ spriteFolder
   .name("elevation");
 const impostorFolder = exporting.addFolder("impostor");
 impostorFolder
-  .add(exportParams, "impostorFrames", ["6", "8", "12", "16"])
+  .add(exportParams, "impostorFrames", IMPOSTOR_FRAMES)
   .name("views a side");
 impostorFolder
-  .add(exportParams, "impostorSize", ["128", "256", "512"])
-  .name("frame size");
+  .add(exportParams, "impostorAtlas", ATLAS_SIZES)
+  .name("atlas size");
 
 // Every control a theme sets, and its value in a theme. The page starts in
 // its first theme
