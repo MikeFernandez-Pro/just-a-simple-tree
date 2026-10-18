@@ -33,6 +33,7 @@ import { ALBEDO, celShade, linear, LUMA, sunDirection, tintShadow, toneMapped } 
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
 import { downwind, flutter, liftBelow, sway } from './wind.js'
+import { holographic, updated } from './hologram.js'
 
 // Anime foliage after trungduyng's Blender pipeline: leaf cards scattered
 // over each leaf clump, each showing a whole cluster of leaves, lit with the
@@ -166,7 +167,12 @@ export function createFoliage() {
   const leaves = texture(new THREE.Texture(), atlasUV())
   // A dropped image's colours, in the same cells as its leaves
   const ownColors = texture(new THREE.Texture(), atlasUV())
-  const opacity = mix(float(1), leaves.r, u.textured)
+  // The leaves they wore before, held while a scan climbs the tree to put
+  // the new ones on, and still worn above it
+  const oldLeaves = texture(new THREE.Texture(), atlasUV())
+  const oldColors = texture(new THREE.Texture(), atlasUV())
+  const oldImageColors = uniform(0)
+  const opacity = mix(float(1), mix(oldLeaves.r, leaves.r, updated), u.textured)
   material.opacityNode = opacity
   material.alphaTest = 0.5
   material.maskShadowNode = opacity.greaterThan(0.5)
@@ -185,7 +191,8 @@ export function createFoliage() {
   // Or a dropped image's own colours, kept to the ramp's bands: each band
   // as much darker or lighter than the mid colour as the ramp makes it
   const band = dot(color, LUMA).div(dot(mid, LUMA).max(1e-4))
-  color = mix(color, ownColors.rgb.mul(band), u.imageColors.mul(u.textured))
+  const imageColors = mix(oldImageColors, u.imageColors, updated)
+  color = mix(color, mix(oldColors.rgb, ownColors.rgb, updated).mul(band), imageColors.mul(u.textured))
 
   // The tutorial's gradient: an easing ramp tied to the light, full on the
   // sun's side of the tree and falling to nothing across the far two thirds,
@@ -201,7 +208,7 @@ export function createFoliage() {
   const aoTerm = min(pow(b.w, 2.7).mul(7.6), 1).mul(AO_BOOST)
   color = color.mul(mix(float(1), aoTerm, u.ao))
 
-  material.outputNode = vec4(mix(toneMapped(color), normal.mul(0.5).add(0.5), u.showNormals), output.a)
+  material.outputNode = vec4(mix(holographic(toneMapped(color), normal), normal.mul(0.5).add(0.5), u.showNormals), output.a)
 
   // A card is one plane of n x n squares, (n + 1)² vertices: 1 x 1 is 4,
   // 2 x 2 is 9. The segments only matter once roundness bends it
@@ -334,6 +341,12 @@ export function createFoliage() {
   function setLeafTexture(name, own) {
     leaves.value = name === OWN_TEXTURE ? own.leaves : leafTexture(name)
     if (own) ownColors.value = own.colors
+  }
+  // The leaves as they are now, held as the old ones for a scan
+  function holdLeaves() {
+    oldLeaves.value = leaves.value
+    oldColors.value = ownColors.value
+    oldImageColors.value = u.imageColors.value
   }
 
   // The cards as they stand with no wind, as one plain mesh for export, the
@@ -478,6 +491,7 @@ export function createFoliage() {
     update,
     setShown,
     setLeafTexture,
+    holdLeaves,
     setSegments,
     bake,
     bakedVertices,
@@ -782,7 +796,7 @@ export function ownLeaves(image) {
     ctx.drawImage(image, -width / 2, -height / 2, width, height)
     ctx.restore()
   }
-  const see = seeThrough(image)
+  const { see, grey } = lookAt(image)
   const data = ctx.getImageData(0, 0, size, size).data
   const mask = new ImageData(size, size)
   for (let i = 0; i < data.length; i += 4) {
@@ -795,12 +809,16 @@ export function ownLeaves(image) {
   leaves.getContext('2d').putImageData(mask, 0, 0)
   const colorTexture = new THREE.CanvasTexture(colors)
   colorTexture.colorSpace = THREE.SRGBColorSpace
-  return { leaves: new THREE.CanvasTexture(leaves), colors: colorTexture, transparent: see }
+  return { leaves: new THREE.CanvasTexture(leaves), colors: colorTexture, transparent: see, grey }
 }
 
-// Whether an image has any transparency of its own, looked at no bigger
-// than a cell
-function seeThrough(image) {
+const TINTED = 24 // the most a pixel's channels can differ by, out of 255, and still count as grey (leaves room for JPEG noise)
+const FEW_TINTED = 0.005 // tinted pixels / seen ones, below which an image is still black and white
+
+// Whether an image has any transparency of its own, and whether the pixels
+// you can see are all grey, so it has no colours worth keeping. Looked at no
+// bigger than a cell
+function lookAt(image) {
   const scale = Math.min(1, OWN_CELL / Math.max(image.width, image.height))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(image.width * scale))
@@ -808,6 +826,14 @@ function seeThrough(image) {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data
-  for (let i = 3; i < data.length; i += 4) if (data[i] < 250) return true
-  return false
+  let see = false
+  let seen = 0
+  let tinted = 0
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 250) see = true
+    if (data[i + 3] < 64) continue // faint edges' colours round badly
+    seen++
+    if (Math.max(data[i], data[i + 1], data[i + 2]) - Math.min(data[i], data[i + 1], data[i + 2]) > TINTED) tinted++
+  }
+  return { see, grey: tinted <= seen * FEW_TINTED }
 }

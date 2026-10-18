@@ -38,6 +38,7 @@ import { createSpeciesButtons } from "./species-buttons.js";
 import { createVertexCount } from "./vertex-count.js";
 import { sweep, sweptBackground } from "./transition.js";
 import { createShake } from "./shake.js";
+import { scanUp, showHologram, updateHologram } from "./hologram.js";
 import {
   barkColors,
   barkMaterial,
@@ -199,14 +200,23 @@ function showLeafColors() {
 setLeafTexture(params.leafTexture);
 
 // A new image puts itself on the leaves, in its own colours when it has
-// transparency to cut them out with, in the theme's when it's a mask of
-// white leaves on black. The one kept from last time only comes back for a
-// link that asks for it
+// transparency to cut them out with and colours to keep, in the theme's
+// when it's a mask of white leaves on black or only black and white. The
+// one kept from last time only comes back for a link that asks for it.
+// While one is dragged over the page, the tree turns into a hologram
+// waiting for it, and once it lands a scan climbs from the ground to the
+// top of the crown, putting the new leaves on as it goes
 const imageDrop = createImageDrop({
+  onDragging: showHologram,
   onImage: (image, { restored }) => {
     own = ownLeaves(image);
     if (!restored) {
-      leafColorsControl.setValue(own.transparent ? "image" : "theme");
+      foliage.holdLeaves();
+      const { crownCenter, crownSize } = foliage.uniforms;
+      scanUp(crownCenter.value.y + crownSize.value.y);
+      leafColorsControl.setValue(
+        own.transparent && !own.grey ? "image" : "theme",
+      );
     }
     if (params.leafTexture === OWN_TEXTURE) setLeafTexture(OWN_TEXTURE);
     else if (!restored) leafTextureControl.setValue(OWN_TEXTURE);
@@ -503,16 +513,16 @@ woodControls.push(wireframeControl, woodColors);
 // two groups, 3D models and images, each choice's purpose in its tooltip:
 // the tree as a GLB for a plain MeshStandardMaterial (the README has the snippet
 // that puts the cel look back), on its own or with its levels of detail,
-// lighter copies for farther away and an impostor last if asked; a picture
+// lighter copies for farther away and an impostor last if asked; a texture
 // from the camera; a sprite sheet of views round it; or an impostor, a quad
 // showing an atlas of views over the sky above it. How each goes is set in
 // the panel's Export section, which the menu's last choice opens
 const exportParams = {
   levels: 3, // tree + LODs': the tree and its lighter copies
   impostorLevel: true,
-  pictureSize: "2048",
-  imageFormat: "png", // the picture's and the sprite sheet's, png or webp
-  pictureAlpha: false, // RGBA on a clear background, rather than RGB on the theme's
+  textureSize: "2048",
+  imageFormat: "png", // the texture's and the sprite sheet's, png or webp
+  textureAlpha: false, // RGBA on a clear background, rather than RGB on the theme's
   spriteAngles: "8",
   spriteSize: "256",
   spriteElevation: 10, // degrees above level
@@ -577,12 +587,12 @@ const EXPORTS = [
   },
   {
     group: "images",
-    label: "picture",
+    label: "texture",
     use: "this view, as you see it",
     run: async () => {
-      const canvas = await capture.picture(camera, {
-        size: Number(exportParams.pictureSize),
-        transparent: exportParams.pictureAlpha,
+      const canvas = await capture.texture(camera, {
+        size: Number(exportParams.textureSize),
+        transparent: exportParams.textureAlpha,
       });
       const { blob, extension } = await encode(
         canvas,
@@ -840,7 +850,7 @@ toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 
 // How the export menu's choices are made: the images' format, PNG or a
 // lossless WebP; the tree's levels of detail, and
-// an impostor as its last; the picture's size and background; the sprite
+// an impostor as its last; the texture's size and background; the sprite
 // sheet's views, their size and how far above level they look from; the
 // impostor's views a side and their size
 const exporting = renderer.inspector.createParameters("Export");
@@ -892,12 +902,12 @@ function countLevels() {
 for (const group of [exporting, modelFolder]) {
   group.paramList.itemRow.addEventListener("click", countLevels);
 }
-const pictureFolder = exporting.addFolder("picture");
-pictureFolder
-  .add(exportParams, "pictureSize", ["1024", "2048", "4096"])
+const textureFolder = exporting.addFolder("texture");
+textureFolder
+  .add(exportParams, "textureSize", ["1024", "2048", "4096"])
   .name("size");
-pictureFolder
-  .add(exportParams, "pictureAlpha")
+textureFolder
+  .add(exportParams, "textureAlpha")
   .name("transparent (RGBA)");
 const spriteFolder = exporting.addFolder("sprite sheet");
 spriteFolder
@@ -1013,6 +1023,7 @@ function frame() {
   keepAboveGround();
   controls.update();
   shake.update(performance.now());
+  updateHologram(performance.now());
   rebuildIfWanted();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));

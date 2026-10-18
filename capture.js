@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu'
 import { wind } from './wind.js'
 import { burst, growth } from './regenerate.js'
 
-// The tree drawn into images: a picture from the camera, a sprite sheet of
+// The tree drawn into images: a texture from the camera, a sprite sheet of
 // views round it, and an impostor's atlas of views over the sky above it.
 // The render loop stops while it draws. The tree stands still, fully grown,
 // with no wind, the background clear if asked, and for sprites and impostors
@@ -79,7 +79,7 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
   // The view from the camera, its long side size pixels, the floor's
   // shadow, the grass and the falling leaves included. On the background
   // it's drawn on a canvas with no alpha, so the PNG comes out RGB
-  async function picture(camera, { size, transparent }) {
+  async function texture(camera, { size, transparent }) {
     const aspect = innerWidth / innerHeight
     const width = Math.round(aspect >= 1 ? size : size * aspect)
     const height = Math.round(aspect >= 1 ? size / aspect : size)
@@ -156,7 +156,7 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
     return canvas
   }
 
-  return { picture, sprites, impostor }
+  return { texture, sprites, impostor }
 }
 
 // A frame's direction from the impostor's centre, decoded from its place in

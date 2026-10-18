@@ -13,6 +13,7 @@ import {
   min,
   mix,
   mx_noise_vec3,
+  normalWorld,
   output,
   positionGeometry,
   rotate,
@@ -30,6 +31,7 @@ import { atlasUV } from './foliage.js'
 import { LUMA, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { blowing, downwind, wind } from './wind.js'
+import { holographic } from './hologram.js'
 
 // Falling leaves, after the tutorial's Blender particles (leaves spawned inside
 // the tree, random size and turn, pushed by wind and turbulence, in the
@@ -221,7 +223,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   // Or, on a tree in a dropped image's colours, the image's, shaded alike
   const own = leafColors.rgb.mul(dot(themed, LUMA).div(dot(mid, LUMA).max(1e-4)))
   const color = mix(themed, own, imageColors)
-  material.outputNode = vec4(toneMapped(color), output.a)
+  material.outputNode = vec4(holographic(toneMapped(color), normalWorld), output.a)
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)
   mesh.frustumCulled = false

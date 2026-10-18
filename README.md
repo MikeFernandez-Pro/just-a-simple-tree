@@ -3,7 +3,7 @@
 <img src="docs/tree.gif" width="100%" alt="An oak in blossom, a willow in autumn, a pine in frost, a bush at night and a cypress in spring, each folding away as the next grows in">
 
 A procedural anime-style tree for three.js, exported as a `.glb` (with
-levels of detail if you like), a picture, a sprite sheet or an impostor. Five
+levels of detail if you like), a texture, a sprite sheet or an impostor. Five
 species: oak, pine, cypress, weeping willow and bush. Everything is
 generated from a seed. Nothing is modelled or loaded, and the leaf textures
 are painted in code at startup, unless you drop an image of your own on the
@@ -25,7 +25,7 @@ back to WebGL2.
 **export** opens a menu of five exports, in two groups, 3D models and
 images; hover one to see what it's for. The panel's **Export** section sets
 how each is made, and **export settings…** at the bottom of the menu opens
-it. Its **image format** saves the picture and the sprite sheet as PNG or
+it. Its **image format** saves the texture and the sprite sheet as PNG or
 lossless WebP; a browser that can't write WebP, like Safari, saves a PNG:
 
 - **tree** (`.glb`): the tree as you see it, as meshes, below.
@@ -34,14 +34,14 @@ lossless WebP; a browser that can't write WebP, like Safari, saves a PNG:
   unless **impostor level** is unticked. See [Levels of detail](#levels-of-detail).
 - **impostor** (`.glb`): one quad and an atlas of views from all over the sky
   above the tree, for trees far away. See [Impostors](#impostors).
-- **picture** (`.png` or `.webp`): the view from the camera, the floor's shadow, the
+- **texture** (`.png` or `.webp`): the view from the camera, the floor's shadow, the
   grass and the falling leaves included, 1024, 2048 or 4096 pixels on its
   long side. It's RGB on the theme's background, or RGBA on a clear one
   with **transparent (RGBA)** ticked.
 - **sprite sheet** (`.png` or `.webp`): the tree from 4, 8 or 16 bearings round it, on a
   clear background, for 2D and 2.5D games. See [Sprite sheets](#sprite-sheets).
 
-The pictures, sprites and impostor are drawn with the tree still and fully
+The textures, sprites and impostor are drawn with the tree still and fully
 grown, lit by the sun as it is when you export.
 
 The tree's GLB holds two meshes with a plain `MeshStandardMaterial`, so it opens in
@@ -388,9 +388,13 @@ tree's foot is on the same pixel in each, centred near the bottom.
   the panel's texture can swap them for pointed, oak, pine-needle or willow
   leaves, or for **your image**: drop an image anywhere on the page, or
   **load image…**. A PNG with transparency is cut out by it and keeps its own
-  colours, within the cel bands; an image without transparency is read as
-  white leaves on black and takes the theme's colours. **colors from** switches
-  between the two. The image is kept in the browser, so a link asking for it
+  colours, within the cel bands, unless it's only black, white and grey; an
+  image without transparency is read as white leaves on black. Both of those
+  take the theme's colours. **colors from** switches
+  between the two. While an image is dragged over the page, the tree turns
+  into a shimmering hologram waiting for it. Once it lands, a bright line
+  scans up from the ground, leaving the real tree in its new leaves below it
+  and the hologram in the old ones above. The image is kept in the browser, so a link asking for it
   finds it again on the same machine. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
 - **Ambient occlusion** is worked out per card on the CPU, treating each
@@ -424,7 +428,7 @@ tree's foot is on the same pixel in each, centred near the bottom.
   them sideways. Picking again mid-sweep sends a new front after the ones
   still going, and each front knocks its own leaves off.
 - **Export**: **export** saves the tree as a GLB, with levels of detail
-  and an impostor if asked, a picture, a sprite sheet or an impostor, as
+  and an impostor if asked, a texture, a sprite sheet or an impostor, as
   described in [Using the export](#using-the-export). The GLB holds the wood
   and the leaves; the grass, the floor and the falling leaves stay in the app.
 
@@ -439,7 +443,7 @@ drops no leaves, so it hides falling leaves too),
 the leaves (clumps, cards, shading and normals), wind, the grass (its
 size, blades, wind strength, shading and colours), falling leaves, and
 the lights (background, sun, sky, shadows, tone mapping), and the export
-(the images' format, the tree's levels of detail, the picture's size and
+(the images' format, the tree's levels of detail, the texture's size and
 transparency, the sprite sheet's views, and the impostor's).
 Each section and folder has its own reset, the filter box finds a setting by
 name, and **copy config** copies every value as JSON.
@@ -455,6 +459,7 @@ sets them all again.
 | `main.js` | the scene, the panel and the render loop |
 | `bar.js` | the buttons at the bottom: new tree, and export with its menu |
 | `image-drop.js` | dropping or picking an image for the leaves, and keeping it |
+| `hologram.js` | the tree as a hologram while an image is dragged over the page, and the scan that puts the new leaves on |
 | `themes.js` | the colour themes and the buttons along the top picking them |
 | `species-buttons.js` | the buttons down the left picking the species |
 | `vertex-count.js` | the card counting the vertices the export will write |
@@ -477,7 +482,7 @@ sets them all again.
 | `regenerate.js` | a new tree, from a new seed or species: the burst, the shrink and the springy pop |
 | `glb.js` | the GLB export: the tree, its levels of detail and the impostor |
 | `lod.js` | the levels of detail, and the tree's bounds |
-| `capture.js` | the picture, the sprite sheet and the impostor's atlas, drawn from the scene |
+| `capture.js` | the texture, the sprite sheet and the impostor's atlas, drawn from the scene |
 | `inspector-filter.js` | the filter box for the Inspector |
 | `inspector-tools.js` | the reset, copy link and copy config buttons, and the link itself |
 

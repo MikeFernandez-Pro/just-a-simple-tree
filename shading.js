@@ -10,6 +10,7 @@ import {
   dot,
   Fn,
   mix,
+  normalWorld,
   output,
   smoothstep,
   step,
@@ -20,6 +21,7 @@ import {
 import { swayedWood } from './wind.js'
 import { grownWood } from './regenerate.js'
 import { swept } from './transition.js'
+import { holographic } from './hologram.js'
 
 // Cel shading as in trungduyng's Blender anime tree tutorial ("the tutorial" in
 // these comments): a Diffuse BSDF read back as a colour (Shader to RGB) and
@@ -119,7 +121,7 @@ export function linear(r, g, b) {
 // their shadows, is the tutorial's Diffuse + Shader to RGB
 function celMaterial(stops) {
   const material = new THREE.MeshLambertNodeMaterial({ color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO) })
-  material.outputNode = vec4(toneMapped(celShade(stops)), output.a)
+  material.outputNode = vec4(holographic(toneMapped(celShade(stops)), normalWorld), output.a)
   material.receivedShadowNode = tintShadow
   return material
 }

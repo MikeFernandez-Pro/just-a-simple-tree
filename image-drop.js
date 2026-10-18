@@ -4,13 +4,16 @@ import { INK, LINE } from './stickers.js'
 // picked with the panel's button. While one is dragged over the page, a
 // white card in the middle says what it's for, outlined and shadowed like
 // the bar's buttons so it reads on any background and theme. The last image
-// is kept in the browser, so a link that asks for it finds it again
+// is kept in the browser, so a link that asks for it finds it again. While
+// an image is dragged over the page, onDragging(true); false once it leaves,
+// or once what was dropped turns out not to be an image. One that is goes
+// to onImage
 
 const KEY = 'just-a-simple-tree/leaf-image'
 const KEPT_SIZE = 1024 // the longest side kept, in pixels
 const MUTED = '#77737f' // the note under the words
 
-export function createImageDrop({ onImage }) {
+export function createImageDrop({ onImage, onDragging }) {
   const style = document.createElement('style')
   style.textContent = `
     .image-drop { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
@@ -53,9 +56,12 @@ export function createImageDrop({ onImage }) {
     e.dataTransfer.dropEffect = 'copy'
     say('drop to put it on the leaves', 'a PNG with transparency, or white leaves on black')
     show(true)
+    onDragging(true)
   })
   addEventListener('dragleave', (e) => {
-    if (!e.relatedTarget) show(false)
+    if (e.relatedTarget) return
+    show(false)
+    onDragging(false)
   })
   addEventListener('drop', (e) => {
     if (!holdsFiles(e)) return
@@ -81,6 +87,7 @@ export function createImageDrop({ onImage }) {
       keep(image)
       onImage(image, { restored: false })
     } catch {
+      onDragging(false)
       say("that isn't an image", 'try a PNG, JPEG or WebP')
       show(true)
       hiding = setTimeout(() => show(false), 1600)
