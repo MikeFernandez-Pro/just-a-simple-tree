@@ -11,6 +11,7 @@ import {
   closeAll,
   onChangeNow,
   openSection,
+  plainSliderBoxes,
   trackFolders,
 } from "./inspector-tools.js";
 import { oak } from "./oak.js";
@@ -361,6 +362,9 @@ function newTree() {
   return regrow();
 }
 
+// A slider's box is a plain text field: a number typed into it may go past
+// the slider's range, and a drag in it selects text
+plainSliderBoxes();
 const treeSection = renderer.inspector.createParameters("Tree");
 trackFolders(treeSection);
 // The Inspector runs onChange a tick after a change. Picking a theme, a

@@ -484,7 +484,10 @@ tree's foot is on the same pixel in each, centred near the bottom.
 ## The panel
 
 Every setting lives in three's WebGPU Inspector (the button at the top
-right), one section per part of the scene, each with its own colors and
+right). A slider's box is a plain text field: a number typed into it may go
+past the slider's range, the box keeping it and the slider sitting at its
+nearest end, and a drag in it selects the text. The panel has
+one section per part of the scene, each with its own colors and
 debug views: the tree (theme, species, its shape, trunk and mesh with the
 wireframe; the shape shows only the species' own sliders, and the bush,
 which has no wood, hides the wood's sliders, wireframe and colours, and

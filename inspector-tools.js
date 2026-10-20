@@ -1,3 +1,5 @@
+import { ValueNumber, ValueSlider } from 'three/addons/inspector/ui/Values.js'
+
 // Reset buttons, a shareable link and a copy-config button for the WebGPU
 // Inspector's Parameters tab. Each section remembers the values its controls
 // start with; reset puts them back through the controls themselves, so every
@@ -7,6 +9,32 @@
 // opening it sets them again, reloading it doesn't.
 // Copy config writes every current value as JSON, by section and folder,
 // under the names shown in the panel
+
+// The Inspector's number box beside a slider isn't a plain text field: a
+// number typed into it is snapped to the slider's range, the control's value
+// is read off the slider, and a press and drag in it changes the value by
+// how far the mouse moves, so the text can't be selected with the mouse.
+// This makes the box plain: it keeps what's typed, the control reads it from
+// there, with the slider sitting at its nearest end when the box is past it,
+// and a drag in it selects text, the slider being the thing to drag. The box
+// still turns away a value that isn't a number. Patched on the classes every
+// control shares, before the first control is made, since a box binds its
+// handlers as it's built
+export function plainSliderBoxes() {
+  if (ValueSlider.prototype.readsBox) return
+  ValueNumber.prototype.addDragHandler = function () {}
+  ValueNumber.prototype._onChangeValue = function () {
+    if (isNaN(parseFloat(this.input.value))) {
+      const min = parseFloat(this.input.min)
+      this.input.value = isFinite(min) ? min : 0
+    }
+    this.dispatchChange()
+  }
+  ValueSlider.prototype.getValue = function () {
+    return parseFloat(this.numberInput.value)
+  }
+  ValueSlider.prototype.readsBox = true
+}
 
 // The Inspector keeps a section's own controls but not its folders: make
 // addFolder remember them. It's patched on the class every section shares, so
