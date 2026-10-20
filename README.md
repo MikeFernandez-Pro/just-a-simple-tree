@@ -9,6 +9,9 @@ generated from a seed. Nothing is modelled or loaded, and the leaf textures
 are painted in code at startup, unless you drop an image of your own on the
 leaves.
 
+Live at <https://mikefernandez-pro.github.io/just-a-simple-tree/>, built
+from `main` by GitHub Actions on every push.
+
 ## Quick start
 
 ```sh
