@@ -7,6 +7,8 @@ import { liftBelow } from './wind.js'
 
 const CAP_RINGS = 3 // rings in the rounded dome closing each branch's tip
 const COLLAR = 0.9 // a child's base radius / its parent's radius there
+const FLARE_HEIGHT = 5 // how far up a flared base spreads / the branch's radius at its start
+const FLARE_RINGS = 6 // rings up a flared base, however coarse the rest of the tube
 
 export const UP = new THREE.Vector3(0, 1, 0)
 export const SIDE = new THREE.Vector3(1, 0, 0)
@@ -37,14 +39,16 @@ export function createWood(params, random) {
   // the parent there, heading half the parent's way, so it reads as one wood
   // instead of a stuck-in cylinder. from is how far along the wood from the
   // ground it starts. A branch that hangs swings in the wind from its start.
-  // A thin one may take fewer sides than the rest
+  // A thin one may take fewer sides than the rest. A trunk may flare at its
+  // base, flare times wider again at the ground, easing back to its own
+  // radius a little way up
   function branch(
     start,
     dir,
     length,
     radius,
     crookedness,
-    { parent = null, from = 0, segments, taper, upPull, hangs = false, sides = params.sides },
+    { parent = null, from = 0, segments, taper, upPull, hangs = false, sides = params.sides, flare = 0 },
   ) {
     const points = [start]
     const radii = [parent ? parent.radius * COLLAR : radius]
@@ -56,22 +60,29 @@ export function createWood(params, random) {
       points.push(points[i - 1].clone().addScaledVector(d, length / segments))
       radii.push(radius * (1 - (1 - taper) * (i / segments)))
     }
-    tube(points, radii, from, length, hangs ? start.y : undefined, sides)
+    const flareTo = flare > 0 ? Math.min((radius * FLARE_HEIGHT) / length, 0.5) : 0
+    tube(points, radii, from, length, hangs ? start.y : undefined, sides, flare, flareTo)
     return { points, radii }
   }
 
-  function tube(kinks, kinkRadii, from, length, hangFrom, sides) {
+  function tube(kinks, kinkRadii, from, length, hangFrom, sides, flare, flareTo) {
     // Subdivide: smoothness rings per kink, along a curve through the kinks,
-    // so bends come out round without the branch changing shape
+    // so bends come out round without the branch changing shape. A flared
+    // base takes rings of its own up to flareTo, the share of the way along
+    // where it ends, so its curve reads at any smoothness
     const steps = (kinks.length - 1) * params.smoothness
     const curve = new THREE.CatmullRomCurve3(kinks, false, 'centripetal')
+    const shares = []
+    if (flareTo > 0) for (let i = 0; i < FLARE_RINGS; i++) shares.push((i / FLARE_RINGS) * flareTo)
+    for (let i = 0; i <= steps; i++) if (i / steps >= flareTo) shares.push(i / steps)
     const points = []
     const radii = []
-    for (let i = 0; i <= steps; i++) {
-      points.push(curve.getPoint(i / steps))
-      const at = (i / steps) * (kinks.length - 1)
+    for (const share of shares) {
+      points.push(curve.getPoint(share))
+      const at = share * (kinks.length - 1)
       const k = Math.min(Math.floor(at), kinks.length - 2)
-      radii.push(THREE.MathUtils.lerp(kinkRadii[k], kinkRadii[k + 1], at - k))
+      const widen = share < flareTo ? 1 + flare * (1 - share / flareTo) ** 2 : 1
+      radii.push(THREE.MathUtils.lerp(kinkRadii[k], kinkRadii[k + 1], at - k) * widen)
     }
 
     const base = positions.length / 3
@@ -104,7 +115,7 @@ export function createWood(params, random) {
       normal.addScaledVector(tangent, -normal.dot(tangent)).normalize()
       binormal.crossVectors(tangent, normal)
       center.copy(points[i])
-      ring(radii[i], 0, from + (i / steps) * length)
+      ring(radii[i], 0, from + shares[i] * length)
     }
 
     // Close the tip with a rounded dome, shrinking rings down to a point

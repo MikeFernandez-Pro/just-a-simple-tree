@@ -58,12 +58,13 @@ export const willow = {
     clumpSize: 0.9,
     cardsPerClump: 4,
     cardSize: 2.05,
+    baseFlare: 1.49,
     roundness: 0.27,
     flutter: 0.12,
     falling: 150,
     mainLimbs: 5,
     size: 6.82,
-    trunkThickness: 0.11,
+    trunkThickness: 0.18,
     wind: 0.17,
   },
   grow,
@@ -90,6 +91,7 @@ function grow(params) {
     segments: TRUNK_SEGMENTS,
     taper: TRUNK_TAPER,
     upPull: 0.1,
+    flare: params.baseFlare,
   })
   const top = trunk.points[TRUNK_SEGMENTS]
   const topDir = top.clone().sub(trunk.points[TRUNK_SEGMENTS - 1]).normalize()

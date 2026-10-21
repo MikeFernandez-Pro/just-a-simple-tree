@@ -440,39 +440,6 @@ export function createFoliage() {
     return mesh.count * cards[segments].attributes.position.count
   }
 
-  // Runs fn with share of the cards scattered on the same clumps, then puts
-  // back the cards showing
-  function withShare(grownClumps, params, share, fn) {
-    const count = mesh.count
-    const kept = cardAttributes.map((attribute) => attribute.array.slice(0, count * attribute.itemSize))
-    update(grownClumps, { ...params, cardsPerClump: Math.max(1, Math.round(params.cardsPerClump * share)) })
-    const result = fn()
-    cardAttributes.forEach((attribute, i) => attribute.array.set(kept[i]))
-    mesh.count = count
-    if (count > 0) for (const attribute of cardAttributes) uploadFirst(attribute, count)
-    showIfAny()
-    return result
-  }
-
-  // The leaves baked for a lower level of detail: share of the cards on
-  // the same clumps, each grown by size, cut into segments
-  function bakeLevel(grownClumps, params, { share, size, segments: cut }) {
-    return withShare(grownClumps, params, share, () => {
-      const was = { segments, size: u.cardSize.value }
-      segments = cut
-      u.cardSize.value = was.size * size
-      const baked = bake()
-      segments = was.segments
-      u.cardSize.value = was.size
-      return baked
-    })
-  }
-
-  // How many vertices bakeLevel would give, without baking
-  function levelVertices(grownClumps, params, { share, segments: cut }) {
-    return withShare(grownClumps, params, share, () => mesh.count * cards[cut].attributes.position.count)
-  }
-
   // Where the cards' leaves reach with no wind: each card's centre and
   // half its width, as [x, y, z, radius]. The painted clusters fill the
   // circle inside a card, not its corners
@@ -495,8 +462,6 @@ export function createFoliage() {
     setSegments,
     bake,
     bakedVertices,
-    bakeLevel,
-    levelVertices,
     reach,
   }
 }

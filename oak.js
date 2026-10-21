@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu'
-import { character, createWood, lopsided, mulberry32, splay, UP } from './wood.js'
+import { alongBranch, character, createWood, lopsided, mulberry32, splay, UP } from './wood.js'
 
 // Fixed shape rules, tuned for an oak
 const SEGMENTS = 4 // kinks per branch
@@ -7,6 +7,7 @@ const LENGTH_FALLOFF = 0.7 // child length / parent length
 const THICKNESS_FALLOFF = 0.7 // child radius / parent radius where it grows
 const TAPER = 0.6 // radius at a branch's end / at its start
 const UP_PULL = 0.06 // how much every kink bends back towards the sky
+const LIMBS_SPAN = 0.7 // how far down the part of the trunk that splits a limb can leave it at split scatter 1: one always leaves from the top
 const TIP_CLUMP = 0.6 // a branch tip's leaf clump radius / twig length
 
 const SHAPE = { segments: SEGMENTS, taper: TAPER, upPull: UP_PULL }
@@ -19,7 +20,7 @@ export const oak = {
   icon:
     '<rect x="10.8" y="13" width="2.4" height="9" rx="0.8"/>' +
     '<circle cx="12" cy="8" r="6"/><circle cx="7" cy="11.5" r="4"/><circle cx="17" cy="11.5" r="4"/>',
-  sliders: ['mainLimbs', 'levels', 'branches', 'spread', 'splitHeight'],
+  sliders: ['mainLimbs', 'levels', 'branches', 'spread', 'trunkHeight', 'splitHeight', 'splitScatter'],
   settings: {},
   grow,
 }
@@ -70,24 +71,32 @@ function grow(params) {
     if (!forked) freeTipped.push({ points, length, from })
   }
 
-  // A short, thick trunk that splits low into a few heavy limbs
-  const trunkLength = size * splitHeight
-  const trunk = wood.branch(new THREE.Vector3(), lean, trunkLength, params.trunkThickness, params.crookedness * 0.3, SHAPE)
-  const top = trunk.points[SEGMENTS]
-  const topDir = top.clone().sub(trunk.points[SEGMENTS - 1]).normalize()
+  // A short, thick trunk that splits low into a few heavy limbs, on top of
+  // whatever bare trunk the trunk height adds, which lifts the crown without
+  // shrinking it. The limbs leave the trunk's top, or, with split scatter,
+  // anywhere over the part that splits, one always from the top, a limb
+  // leaving lower down being longer, so it reaches as high as the rest.
+  // Where they leave draws from a random of its own, so split scatter only
+  // slides the limbs up and down the trunk, and at 0 nothing moves
+  const splitLength = size * splitHeight
+  const trunkLength = splitLength + params.trunkHeight
+  const trunk = wood.branch(new THREE.Vector3(), lean, trunkLength, params.trunkThickness, params.crookedness * 0.3, { ...SHAPE, flare: params.baseFlare })
+  const limbsSpan = (LIMBS_SPAN * params.splitScatter * splitLength) / trunkLength
+  const scatterRandom = mulberry32(params.seed + 104729)
+  // The trunk's very top, taken as it is rather than measured along the
+  // trunk, so a limb there sits exactly where it always has
+  const top = {
+    point: trunk.points[SEGMENTS],
+    dir: trunk.points[SEGMENTS].clone().sub(trunk.points[SEGMENTS - 1]).normalize(),
+    radius: trunk.radii[SEGMENTS],
+  }
   for (let l = 0; l < params.mainLimbs; l++) {
+    const at = l === 0 ? 1 : 1 - scatterRandom() * limbsSpan
+    const { point, dir: trunkDir, radius: trunkRadius } = at === 1 ? top : alongBranch(trunk, at)
     const around = ((l + random() * 0.5) / params.mainLimbs) * Math.PI * 2
-    const dir = splay(topDir, around, spread * (0.8 + random() * 0.4))
-    const length = size * (1 - splitHeight) * (0.7 + random() * 0.2) * lopsided(around, side, heavy)
-    grow(
-      top,
-      dir,
-      length,
-      trunk.radii[SEGMENTS] * 0.75,
-      params.levels,
-      { dir: topDir, radius: trunk.radii[SEGMENTS] },
-      trunkLength,
-    )
+    const dir = splay(trunkDir, around, spread * (0.8 + random() * 0.4))
+    const length = size * (1 - splitHeight * at) * (0.7 + random() * 0.2) * lopsided(around, side, heavy)
+    grow(point, dir, length, trunkRadius * 0.75, params.levels, { dir: trunkDir, radius: trunkRadius }, trunkLength * at)
   }
 
   const { geometry, farthest } = wood.build()

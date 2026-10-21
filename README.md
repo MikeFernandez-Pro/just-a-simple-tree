@@ -2,8 +2,8 @@
 
 <img src="docs/tree.gif" width="100%" alt="An oak in blossom, a willow in autumn, a pine in frost, a bush at night and a cypress in spring, each folding away as the next grows in">
 
-A procedural anime-style tree for three.js, exported as a `.glb` (with
-levels of detail if you like), a texture, a sprite sheet or an impostor. Five
+A procedural anime-style tree for three.js, exported as a `.glb`, a
+texture, a sprite sheet or an impostor. Five
 species: oak, pine, cypress, weeping willow and bush. Everything is
 generated from a seed. Nothing is modelled or loaded, and the leaf textures
 are painted in code at startup, unless you drop an image of your own on the
@@ -25,28 +25,22 @@ back to WebGL2.
 
 ## Using the export
 
-**export** opens a menu of five exports, in two groups, 3D models and
+**export** opens a menu of four exports, in two groups, 3D models and
 images; hover one to see what it's for. The panel's **Export** section sets
 how each is made, and **export settings…** at the bottom of the menu opens
-it. Its **image format** saves the texture and the sprite sheet as PNG or
-lossless WebP; a browser that can't write WebP, like Safari, saves a PNG.
-Its **GLB textures** picks how the GLBs carry their textures, a PNG, a
-256-colour PNG, a WebP or a KTX2 (UASTC or ETC1S). See [GLB textures](#glb-textures).
+it. Every image is a PNG, the GLBs' textures included: see
+[GLB textures](#glb-textures).
 
 - **tree** (`.glb`): the tree as you see it, as meshes, below.
-- **tree + LODs** (`.glb`): the tree and lighter copies of it for farther
-  away, 2 to 4 levels, 3 to start with, and the impostor as the last level
-  unless **impostor level** is unticked. That impostor has its own views
-  a side and atlas size, apart from the **impostor** export's. See
-  [Levels of detail](#levels-of-detail).
 - **impostor** (`.glb`): one quad and an atlas of views from all over the sky
-  above the tree, for trees far away. Its atlas is 512, 1024, 2048 or 4096
-  pixels a side, 1024 to start with. See [Impostors](#impostors).
-- **texture** (`.png` or `.webp`): the view from the camera, the floor's shadow, the
+  above the tree, for trees far away: 6, 8 or 12 views a side, 8 to start
+  with, in an atlas 512 to 8192 pixels a side, 2048 to start with. See
+  [Impostors](#impostors).
+- **texture** (`.png`): the view from the camera, the floor's shadow, the
   grass and the falling leaves included, 1024, 2048 or 4096 pixels on its
   long side. It's RGB on the theme's background, or RGBA on a clear one
   with **transparent (RGBA)** ticked.
-- **sprite sheet** (`.png` or `.webp`): the tree from 4, 8 or 16 bearings round it, on a
+- **sprite sheet** (`.png`): the tree from 4, 8 or 16 bearings round it, on a
   clear background, for 2D and 2.5D games. See [Sprite sheets](#sprite-sheets).
 
 The textures, sprites and impostor are drawn with the tree still and fully
@@ -209,80 +203,14 @@ leaves.material = new THREE.MeshToonMaterial({
 
 ### GLB textures
 
-Almost all of an impostor's weight is its atlas. **GLB textures** sets how
-the GLBs write it and the leaves' cut-out:
+The GLBs write their textures, the leaves' cut-out and the impostor's
+atlas, as PNGs, every pixel as drawn, which anything reads. Under the
+transparent pixels they keep a colour rather than black: the nearest leaf's
+for a few pixels round the edges, and the mean colour beyond. So the leaves
+don't darken at their edges as the texture shrinks into its mipmaps.
 
-| choice | file | an 8 × 8 impostor, 1024 pixels a side | reads in |
-|---|---|---|---|
-| **png** | PNG, every pixel as drawn | 930 KB | anything |
-| **png 256 colors** | PNG with a palette of 256 colours, no dithering | 270 KB | anything |
-| **webp** | lossy WebP, its alpha lossless, in `EXT_texture_webp` | 210 KB | three.js, Babylon.js, Godot |
-| **ktx2 uastc** | Basis Universal UASTC with mipmaps, squeezed with Zstandard, in `KHR_texture_basisu` | 550 KB | three.js, Babylon.js, Godot, Unity with glTFast and KTX for Unity |
-| **ktx2 etc1s** | Basis Universal ETC1S with mipmaps, in `KHR_texture_basisu` | 195 KB | the same |
-
-The cel bands come through the 256 colours well, though the soft shading
-between them may band a little. Only KTX2 stays compressed on the GPU, so
-it also takes about a quarter of the memory, either kind. UASTC keeps
-nearly all the detail; ETC1S is the smallest file but turns fine detail
-into blocks of colour, which only passes for a tree far away. Under the
-transparent pixels, every format keeps a colour rather than black: the
-nearest leaf's for a few pixels round the edges, and the mean colour
-beyond. So the leaves don't darken at their edges as the texture shrinks
-into its mipmaps, and every format shades the same. A KTX2 texture is never more
-than 2048 pixels a side: the encoder takes no more, so a 4096 atlas is
-halved. The encoder is a few megabytes and only loads the first time it's
-used. A GLB with WebP or KTX2 textures lists the extension as required, so a
-reader that doesn't know it refuses the file instead of showing it blank. In
-three.js, `GLTFLoader` reads WebP on its own, and KTX2 with a `KTX2Loader`:
-
-```js
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
-import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
-
-const ktx2 = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(renderer)
-const gltf = await new GLTFLoader().setKTX2Loader(ktx2).loadAsync('oak-8967-impostor.glb')
-```
-
-`setTranscoderPath` points to a copy of the files in
-`three/examples/jsm/libs/basis/`.
-
-### Levels of detail
-
-**tree + LODs** writes the tree as nodes `tree_LOD0`, `tree_LOD1` and so
-on, as Unity names them. `tree_LOD0` is the full tree, the same as
-**tree** gives. Each level after it has fewer sides round each branch and
-fewer rings along it, and fewer, bigger leaf cards in one piece. With
-**impostor level** ticked, the impostor is the last level. Each level's
-extras say which it is: its `level`, its `detail` (`full detail`,
-`lighter` or `impostor`), how many `vertices` it holds, and the
-`screenCoverage` it shows down to. The panel's **tree + LODs** folder
-counts each level's vertices before you export. Only
-`tree_LOD0` is in the scene, so a plain viewer shows the full tree. It lists
-the other levels in glTF's `MSFT_lod` extension, and the share of the
-screen each wants in its `MSFT_screencoverage` extras. Engines that read
-`MSFT_lod`, like Babylon.js, switch levels on their own. In three.js, build
-a `THREE.LOD` from them:
-
-```js
-import * as THREE from 'three'
-
-// A THREE.LOD from a GLB with levels of detail: tree_LOD0 is in the scene,
-// and lists the other levels' nodes in its MSFT_lod extension. Each level
-// takes over once the camera is farther than its distance
-export async function treeLOD(gltf, distances = [0, 25, 50, 90, 140]) {
-  const first = gltf.scene.getObjectByName('tree_LOD0')
-  const { ids } = first.userData.gltfExtensions.MSFT_lod
-  const lod = new THREE.LOD()
-  lod.addLevel(first, distances[0])
-  for (const [i, id] of ids.entries()) lod.addLevel(await gltf.parser.getDependency('node', id), distances[i + 1])
-  return lod
-}
-```
-
-```js
-const gltf = await new GLTFLoader().loadAsync('oak-8967.glb')
-scene.add(await treeLOD(gltf))
-```
+For smaller files, convert the textures yourself, for instance with
+[glTF Transform](https://gltf-transform.dev).
 
 ### Impostors
 
@@ -294,15 +222,37 @@ out:
   bottom in UV space, is the view from the direction the hemi-octahedral map
   decodes from `(i, j) / (frames - 1) * 2 - 1`: the corners and edges look
   from the horizon, the middle from straight above.
-- `center` and `radius`: the sphere round the tree that every view frames.
+- `center` and `radius`: the sphere round the tree, which the quad covers
+  as it turns.
+- `crops`: each view's rectangle round the tree, `crops[j * frames + i]`
+  for frame `(i, j)`, as `[left, bottom, right, top]` in metres from the
+  centre along the view's right and up. Each view is cropped to the tree as
+  it sees it and stretched to fill its square, so none of the atlas goes on
+  the empty corners round it: a third more pixels across the tree and half
+  as many again up it, for the oak, than framing the sphere.
 
 The atlas is as many pixels a side as picked, whatever the views a side, so
 with 6 or 12 a frame doesn't fill a whole number of pixels. Each frame
 still covers exactly `1 / frames` of the atlas in UV space.
 
-A plain viewer shows the view from the front. `impostor` turns the quad
-towards the camera and shows the view nearest its direction. The views
-pop from one to the next rather than blending:
+A view has the atlas's pixels divided by the views a side: 256 in a 2048
+atlas with 8 views. A tree drawn bigger than that on screen, in device
+pixels, is magnified and blurs, however it was drawn. The panel shows each
+view's pixels under the impostor's settings, and how much GPU memory the
+atlas takes with its mipmaps: 8192 is sharp close up but takes about 360 MB,
+and some phones can't load a texture that big. More
+views a side turn more smoothly, but share the same pixels, so each is
+smaller.
+
+The sun's light is baked into the views as it was when you exported. Turn
+an impostor and its lit side turns with it, while a mesh beside it stays lit
+from the sun, so the impostor looks darker or lighter than the trees round
+it. Leave impostors unturned, with your scene's sun where the app's was.
+
+A plain viewer shows the view from the front, the quad cut to its crop.
+`impostor` turns the quad towards the camera and shows the view nearest its
+direction. It tells the quad's corners apart by their UVs. The views pop
+from one to the next rather than blending:
 
 <details>
 <summary><code>impostor</code> for <code>WebGLRenderer</code></summary>
@@ -313,19 +263,22 @@ import * as THREE from 'three'
 // An impostor from Just a simple tree, for WebGLRenderer: its quad turns to
 // the view in its atlas nearest the camera's direction, and shows it
 export function impostor(mesh) {
-  const { frames, radius, center } = mesh.userData.impostor
+  const { frames, radius, center, crops } = mesh.userData.impostor
   mesh.frustumCulled = false
   mesh.material.onBeforeCompile = (shader) => {
     shader.uniforms.frames = { value: frames }
     shader.uniforms.radius = { value: radius }
     shader.uniforms.center = { value: new THREE.Vector3(...center) }
+    shader.uniforms.crops = { value: crops.map((crop) => new THREE.Vector4(...crop)) }
     shader.vertexShader = shader.vertexShader
       .replace(
         '#include <common>',
         `#include <common>
 uniform float frames;
 uniform float radius;
-uniform vec3 center;`,
+uniform vec3 center;
+uniform vec4 crops[${frames * frames}];
+varying vec2 vInFrame;`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -334,15 +287,27 @@ vec3 eye = (inverse(modelMatrix) * vec4(cameraPosition, 1.0)).xyz - center;
 eye.y = max(eye.y, 0.0);
 vec2 p = eye.xz / (abs(eye.x) + abs(eye.y) + abs(eye.z));
 vec2 frame = clamp(floor((vec2(p.x + p.y, p.x - p.y) * 0.5 + 0.5) * (frames - 1.0) + 0.5), 0.0, frames - 1.0);
-// That frame's direction, and the quad turned to face it
+// That frame's direction, and the quad, as big as the sphere round the
+// tree, turned to face it. Which corner this is comes from its UV
 vec2 o = frame / (frames - 1.0) * 2.0 - 1.0;
 vec2 q = vec2(o.x + o.y, o.x - o.y) * 0.5;
 vec3 look = normalize(vec3(q.x, 1.0 - abs(q.x) - abs(q.y), q.y));
 vec3 right = abs(look.y) > 0.999 ? vec3(1.0, 0.0, 0.0) : normalize(cross(vec3(0.0, 1.0, 0.0), look));
 vec3 up = cross(look, right);
-vec2 corner = (position.xy - center.xy) / radius;
+vec2 corner = vec2(uv.x * frames - (frames - 1.0), uv.y * frames) * 2.0 - 1.0;
 vec3 transformed = center + (right * corner.x + up * corner.y) * radius;
-vMapUv = (frame + corner * 0.5 + 0.5) / frames;`,
+// Where the corner falls in the frame's crop of the tree
+vec4 crop = crops[int(frame.y * frames + frame.x + 0.5)];
+vInFrame = (corner * radius - crop.xy) / (crop.zw - crop.xy);
+vMapUv = (frame + vInFrame) / frames;`,
+      )
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vInFrame;')
+      .replace(
+        '#include <map_fragment>',
+        `// Outside the crop is the next frame's
+if (any(lessThan(vInFrame, vec2(0.0))) || any(greaterThan(vInFrame, vec2(1.0)))) discard;
+#include <map_fragment>`,
       )
   }
   mesh.material.needsUpdate = true
@@ -356,12 +321,12 @@ vMapUv = (frame + corner * 0.5 + 0.5) / frames;`,
 
 ```js
 import * as THREE from 'three/webgpu'
-import { abs, cameraPosition, cross, float, floor, modelWorldMatrixInverse, normalize, positionGeometry, select, texture, varying, vec2, vec3, vec4 } from 'three/tsl'
+import { abs, cameraPosition, cross, float, floor, modelWorldMatrixInverse, normalize, select, step, texture, uniformArray, uv, varying, vec2, vec3, vec4 } from 'three/tsl'
 
 // An impostor from Just a simple tree, for WebGPURenderer: its quad turns to
 // the view in its atlas nearest the camera's direction, and shows it
 export function impostor(mesh) {
-  const { frames, radius, center } = mesh.userData.impostor
+  const { frames, radius, center, crops } = mesh.userData.impostor
   const old = mesh.material
   const n = float(frames)
   const c = vec3(...center)
@@ -370,18 +335,24 @@ export function impostor(mesh) {
   const above = vec3(eye.x, eye.y.max(0), eye.z)
   const p = above.xz.div(abs(above.x).add(abs(above.y)).add(abs(above.z)))
   const frame = floor(vec2(p.x.add(p.y), p.x.sub(p.y)).mul(0.5).add(0.5).mul(n.sub(1)).add(0.5)).clamp(0, n.sub(1))
-  // That frame's direction, and the quad turned to face it
+  // That frame's direction, and the quad, as big as the sphere round the
+  // tree, turned to face it. Which corner this is comes from its UV
   const o = frame.div(n.sub(1)).mul(2).sub(1)
   const q = vec2(o.x.add(o.y), o.x.sub(o.y)).mul(0.5)
   const look = normalize(vec3(q.x, float(1).sub(abs(q.x)).sub(abs(q.y)), q.y))
   const right = select(abs(look.y).greaterThan(0.999), vec3(1, 0, 0), normalize(cross(vec3(0, 1, 0), look)))
   const up = cross(look, right)
-  const corner = positionGeometry.xy.sub(c.xy).div(radius)
-  const view = texture(old.map, varying(frame.add(corner.mul(0.5).add(0.5)).div(n)))
+  const corner = vec2(uv().x.mul(n).sub(n.sub(1)), uv().y.mul(n)).mul(2).sub(1)
+  // Where the corner falls in the frame's crop of the tree
+  const crop = uniformArray(crops.map((crop) => new THREE.Vector4(...crop))).element(frame.y.mul(n).add(frame.x).toInt())
+  const inFrame = varying(corner.mul(radius).sub(crop.xy).div(crop.zw.sub(crop.xy)))
+  const view = texture(old.map, varying(frame.add(inFrame).div(n)))
   const material = new THREE.MeshBasicNodeMaterial({ alphaTest: old.alphaTest, side: old.side })
   material.positionNode = c.add(right.mul(corner.x).add(up.mul(corner.y)).mul(radius))
   material.colorNode = view
-  material.opacityNode = view.a
+  // Outside the crop is the next frame's, so it's cut away
+  const inside = step(0, inFrame.x).mul(step(inFrame.x, 1)).mul(step(0, inFrame.y)).mul(step(inFrame.y, 1))
+  material.opacityNode = view.a.mul(inside)
   mesh.material = material
   mesh.frustumCulled = false
 }
@@ -394,9 +365,6 @@ const gltf = await new GLTFLoader().loadAsync('oak-8967-impostor.glb')
 impostor(gltf.scene.getObjectByName('impostor'))
 scene.add(gltf.scene)
 ```
-
-In a GLB with levels of detail, call it on `impostor_LOD3` (or whichever
-level is the last).
 
 ### Sprite sheets
 
@@ -411,13 +379,17 @@ tree's foot is on the same pixel in each, centred near the bottom.
 - **The tree** grows from a seed, as one of five species, picked with the
   buttons down the left side (hover one for its name), the up and down
   arrow keys or the panel, all from the same crooked, tapered wood with
-  rounded tips and collars where branches meet:
+  rounded tips and collars where branches meet, and **base flare** spreads
+  any trunk out at the ground, like roots:
   - **oak**: a short trunk splitting into limbs, each branching again;
+    **trunk height** raises it on bare trunk, and **split scatter** lets the
+    limbs leave the trunk at their own heights rather than all from its top;
   - **pine**: one straight trunk ringed by whorls of drooping branches, long
     at the bottom and short at the top, so the crown is a tiered cone of
-    flat pads of needles;
+    flat pads of needles, thinning to a sparse point at the top;
   - **cypress**: a tall, narrow flame of short branches climbing steeply
-    round a spiral, widest a third of the way up;
+    round a spiral, widest at its foot; **trunk height** raises
+    it on bare trunk too;
   - **willow** (weeping willow): a short, stout trunk splitting into limbs that rise and
     spread like a fountain, hung with long thin strands that arch over and
     fall in curtains towards the ground;
@@ -427,19 +399,20 @@ tree's foot is on the same pixel in each, centred near the bottom.
 - **Each seed has its own character**: besides placing every branch, it
   makes the tree taller or shorter, broader or slimmer, leaning a little and
   heavier on one side, and varies what makes its species: where the pine's
-  crown starts and how it droops, where the cypress is widest and how sharp
-  its tip is, how wide the willow's dome is and how long its curtains, how
-  wide the bush spreads.
+  crown starts and how it droops, how sharp the cypress's tip is, how wide
+  the willow's dome is and how long its curtains, how wide the bush
+  spreads.
   **variety**, in the shape folder, sets how far: at 0 every seed grows its
   species' average tree.
 - **The leaves** are flat cards scattered over leaf clumps: one at each free
   branch tip on the oak, flat pads along the pine's branches, round
   clumps packed up the cypress, and long tresses down the willow's strands,
-  their leaves pointing down, and round clumps heaped up into the bush. Every species wears the same round leaves;
-  the panel's texture can swap them for pointed, oak, pine-needle or willow
-  leaves, or for **your image**: drop an image anywhere on the page, or
-  **load image…**. The leaves picked stay on when you pick another
-  species. A PNG with transparency is cut out by it and keeps its own
+  their leaves pointing down, and round clumps heaped up into the bush. The
+  oak, willow and bush wear round leaves, and the pine and cypress small
+  willow leaves; the panel's texture can swap them for pointed, oak,
+  pine-needle or willow leaves, or for **your image**: drop an image
+  anywhere on the page, or **load image…**. Leaves you pick stay on when
+  you pick another species. A PNG with transparency is cut out by it and keeps its own
   colours, within the cel bands, unless it's only black, white and grey; an
   image without transparency is read as white leaves on black. Both of those
   take the theme's colours. **colors from** switches
@@ -479,8 +452,8 @@ tree's foot is on the same pixel in each, centred near the bottom.
   batch of leaves drops straight down until a gust catches them and blows
   them sideways. Picking again mid-sweep sends a new front after the ones
   still going, and each front knocks its own leaves off.
-- **Export**: **export** saves the tree as a GLB, with levels of detail
-  and an impostor if asked, a texture, a sprite sheet or an impostor, as
+- **Export**: **export** saves the tree as a GLB, a texture, a sprite
+  sheet or an impostor, as
   described in [Using the export](#using-the-export). The GLB holds the wood
   and the leaves; the grass, the floor and the falling leaves stay in the app.
 
@@ -498,8 +471,7 @@ drops no leaves, so it hides falling leaves too),
 the leaves (clumps, cards, shading and normals), wind, the grass (its
 size, blades, wind strength, shading and colours), falling leaves, and
 the lights (background, sun, sky, shadows, tone mapping), and the export
-(the images' format, the tree's levels of detail, the texture's size and
-transparency, the sprite sheet's views, and the impostor's).
+(the texture's size and transparency, the sprite sheet's views, and the impostor's).
 Each section and folder has its own reset, the filter box finds a setting by
 name, and **copy config** copies every value as JSON.
 
@@ -535,9 +507,9 @@ sets them all again.
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
 | `regenerate.js` | a new tree, from a new seed or species: the burst, the shrink and the springy pop |
-| `glb.js` | the GLB export: the tree, its levels of detail and the impostor |
-| `textures.js` | how a GLB writes its textures: a PNG, a 256-colour PNG, a WebP or a KTX2 |
-| `lod.js` | the levels of detail, and the tree's bounds |
+| `glb.js` | the GLB export: the tree or its impostor |
+| `textures.js` | how a GLB writes its textures as PNGs |
+| `bounds.js` | the tree's bounds and vertices, for the sprite sheet and the impostor |
 | `capture.js` | the texture, the sprite sheet and the impostor's atlas, drawn from the scene |
 | `inspector-filter.js` | the filter box for the Inspector |
 | `inspector-tools.js` | the reset, copy link and copy config buttons, and the link itself |

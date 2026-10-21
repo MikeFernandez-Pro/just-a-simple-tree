@@ -12,9 +12,9 @@ import { burst, growth } from './regenerate.js'
 // clean. The lighting is the sun's at the time, baked in
 
 const MAX_DRAWN = 4096 // the most pixels a side the canvas is drawn at
-const WEBP_QUALITY = 1 // a WebP's, from 0 to 1: at 1 it's lossless, every pixel as drawn
 const BATCH = 8 // views drawn before the browser gets a moment, so the GPU's watchdog never trips
-export const MAX_ATLAS = 4096 // the most pixels a side of an impostor's atlas or a sprite sheet
+export const MAX_ATLAS = 4096 // the most pixels a side of a sprite sheet
+const CROP_MARGIN = 0.02 // room left round the tree in an impostor's view, a share of its width and height
 
 export function createCapture({ renderer, scene, loop, scenery, tree }) {
   // Draws each camera's view into its place in a 2D context: at(i) gives
@@ -136,21 +136,31 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
     return { canvas, columns, rows }
   }
 
-  // An impostor's atlas: frames x frames views of the tree, each looking at
-  // the sphere round it, from directions spread over the sky above it by a
+  // An impostor's atlas: frames x frames views of the tree, looking at the
+  // sphere round it from directions spread over the sky above it by a
   // hemi-octahedral map. Frame (i, j), i from the left and j from the
-  // bottom, is seen from impostorDirection(i, j, frames). The atlas is size
-  // pixels a side, whatever frames is, so a frame may not be a whole number
-  // of pixels: each is drawn a little bigger and fitted into its square
-  async function impostor({ center, radius }, { frames, size }) {
+  // bottom, is seen from impostorDirection(i, j, frames). Each view is
+  // cropped to the tree as it sees it, from points (x, y, z, flat), and
+  // stretched to fill its square, so none of the atlas goes on the empty
+  // corners round the tree: crops[j * frames + i] is the view's [left,
+  // bottom, right, top], in metres from the centre along its right and up.
+  // The atlas is size pixels a side, whatever frames is, so a frame may not
+  // be a whole number of pixels: each is drawn a little bigger and fitted
+  // into its square
+  async function impostor({ center, radius }, { frames, size, points }) {
     const cameras = []
+    const crops = []
     for (let j = 0; j < frames; j++) {
       for (let i = 0; i < frames; i++) {
         const { direction, up } = impostorDirection(i, j, frames)
         const camera = new THREE.OrthographicCamera(-radius, radius, radius, -radius, radius * 0.5, radius * 5.5)
         camera.up.copy(up)
         look(camera, center, direction, radius * 3)
+        const crop = cropOf(camera, points, radius)
+        ;[camera.left, camera.bottom, camera.right, camera.top] = crop
+        camera.updateProjectionMatrix()
         cameras.push(camera)
+        crops.push(crop)
       }
     }
     const canvas = canvasOf(size, size)
@@ -158,7 +168,7 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
     const at = (n) => [(n % frames) * frame, (frames - 1 - Math.floor(n / frames)) * frame, frame, frame]
     const drawn = Math.ceil(frame)
     await shoot(cameras, { width: drawn, height: drawn, transparent: true, bare: true, into: canvas.getContext('2d'), at })
-    return canvas
+    return { canvas, crops }
   }
 
   return { texture, sprites, impostor }
@@ -175,6 +185,28 @@ export function impostorDirection(i, j, frames) {
   const direction = new THREE.Vector3(px, 1 - Math.abs(px) - Math.abs(pz), pz).normalize()
   const right = Math.abs(direction.y) > 0.999 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0).cross(direction).normalize()
   return { direction, up: direction.clone().cross(right) }
+}
+
+// The tree's points as a camera looking at its centre sees them: their
+// [left, bottom, right, top] across its view, CROP_MARGIN wider on each
+// side, within the sphere's radius, rounded to a tenth of a millimetre so
+// the GLB's extras say exactly what was drawn
+function cropOf(camera, points, radius) {
+  const e = camera.matrixWorldInverse.elements
+  let [left, bottom, right, top] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (let k = 0; k < points.length; k += 3) {
+    const [x, y, z] = [points[k], points[k + 1], points[k + 2]]
+    const across = e[0] * x + e[4] * y + e[8] * z + e[12]
+    const up = e[1] * x + e[5] * y + e[9] * z + e[13]
+    left = Math.min(left, across)
+    right = Math.max(right, across)
+    bottom = Math.min(bottom, up)
+    top = Math.max(top, up)
+  }
+  const wide = (right - left) * CROP_MARGIN
+  const tall = (top - bottom) * CROP_MARGIN
+  const round = (value) => Math.round(THREE.MathUtils.clamp(value, -radius, radius) * 1e4) / 1e4
+  return [left - wide, bottom - tall, right + wide, top + tall].map(round)
 }
 
 // A camera distance away from target along direction, looking at it
@@ -200,10 +232,7 @@ export function download(blob, name) {
   setTimeout(() => URL.revokeObjectURL(link.href), 1000)
 }
 
-// A canvas as an image file, a PNG or a WebP, and the extension it takes.
-// A browser that can't write WebP, like Safari, writes a PNG instead, so the
-// extension follows what was written
-export async function encode(canvas, format) {
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, `image/${format}`, WEBP_QUALITY))
-  return { blob, extension: blob.type === 'image/webp' ? 'webp' : 'png' }
+// A canvas as a PNG
+export function encode(canvas) {
+  return new Promise((resolve) => canvas.toBlob(resolve, 'image/png'))
 }

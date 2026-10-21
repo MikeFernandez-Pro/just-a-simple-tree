@@ -25,8 +25,10 @@ const SMALLEST = 0.03 // the smallest clump's radius / the height
 const CORE = 0.3 // the clump hugging the trunk at a whorl's radius / the whorl's reach
 const CORE_LARGEST = 0.05 // and at most / the height
 const CORES_FROM = 0.45 // how far up the whorls, of them all, the trunk gets clumps
-const LEADER = 0.045 // the lowest clump's radius on the leader, the trunk's bare top / the height
-const LEADER_CLUMPS = 4 // clumps up the leader, shrinking to its tip
+const LEADER = 0.03 // the lowest clump's radius on the leader, the trunk's bare top / the height
+const LEADER_TIP = 0.3 // the highest clump's radius on the leader / the lowest's
+const LEADER_CLUMPS = 3 // clumps up the leader, shrinking to its tip
+const TOP_PADS = 0.7 // the highest whorl's clumps' radius / what it would be lower down
 
 // The pine, a tiered cone of flat pads, densely carded, barely fluttering
 export const pine = {
@@ -37,10 +39,13 @@ export const pine = {
     '<path d="M12 1.5 L16.5 7.5 H14.2 L18.5 12.5 H15.8 L20.5 18 H3.5 L8.2 12.5 H5.5 L9.8 7.5 H7.5 Z"/>',
   sliders: ['droop', 'whorls', 'whorlBranches'],
   settings: {
+    size: 5.27,
     crookedness: 0.45,
+    baseFlare: 1.4,
     clumpSize: 1.25,
     cardsPerClump: 13,
-    cardSize: 0.77,
+    cardSize: 0.8,
+    leafTexture: 'willow leaves',
     roundness: 0,
     flutter: 0.09,
     falling: 70,
@@ -68,6 +73,7 @@ function grow(params) {
     segments: TRUNK_SEGMENTS,
     taper: TRUNK_TAPER,
     upPull: TRUNK_PULL,
+    flare: params.baseFlare,
   })
   const onTrunk = (at) => alongBranch(trunk, at)
 
@@ -96,13 +102,15 @@ function grow(params) {
         taper: BRANCH_TAPER,
         upPull: -droop * DROOP,
       })
-      branches.push({ shape, length, from })
+      branches.push({ shape, length, from, last: w === whorls - 1 })
     }
   }
 
   const { geometry, farthest } = wood.build()
 
-  // Flat pads of leaves out along each branch, shrinking towards its tip; one
+  // Flat pads of leaves out along each branch, shrinking towards its tip, or
+  // only at its tip on the highest whorl, so the crown's very top thins to
+  // a point rather than bunching there; one
   // hugging the trunk at each of the upper whorls, where their short
   // branches would leave bare wood between them; and a few up the leader
   // above the highest whorl, shrinking to a point. None smaller than a small
@@ -111,9 +119,9 @@ function grow(params) {
   const leafRandom = mulberry32(params.seed + 7919)
   const clumps = []
   const tuft = height * SMALLEST
-  for (const { shape, length, from } of branches) {
-    for (const along of PADS) {
-      const radius = Math.max(length * PAD * (1.2 - 0.5 * along), tuft) * (0.85 + leafRandom() * 0.3) * params.clumpSize
+  for (const { shape, length, from, last } of branches) {
+    for (const along of last ? [1] : PADS) {
+      const radius = Math.max(length * PAD * (1.2 - 0.5 * along), tuft) * (0.85 + leafRandom() * 0.3) * params.clumpSize * (last ? TOP_PADS : 1)
       const birth = (from + along * length) / farthest
       clumps.push({ position: alongBranch(shape, Math.min(along, 0.999)).point, radius, flatten: FLATTEN, birth })
     }
@@ -123,7 +131,7 @@ function grow(params) {
   }
   for (let s = 0; s < LEADER_CLUMPS; s++) {
     const at = THREE.MathUtils.lerp(TOP, 1, s / (LEADER_CLUMPS - 1))
-    const radius = height * LEADER * (1 - (0.7 * s) / LEADER_CLUMPS) * params.clumpSize
+    const radius = height * LEADER * THREE.MathUtils.lerp(1, LEADER_TIP, s / (LEADER_CLUMPS - 1)) * params.clumpSize
     clumps.push({ position: onTrunk(Math.min(at, 0.999)).point, radius, birth: (at * height) / farthest })
   }
 
