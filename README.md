@@ -442,7 +442,9 @@ tree's foot is on the same pixel in each, centred near the bottom.
   the tree is gone, the new one springs up out of the ground, shooting up thin and overshooting short and wide
   before it settles, its branches shooting out and its leaves popping on in
   a soft wave from the trunk to the tips. Picking another species
-  brings it up in the same way.
+  brings it up in the same way. The old tree's leaves, those blowing away
+  and those still falling or lying on the floor, keep their own texture: the
+  new species' leaves only come with the new tree.
 - **Themes**: the round buttons along the top, or the left and right arrow
   keys, switch between blossom, spring, autumn, frost and night. Each sets
   the leaves, the wood, the grass, the background and the shadows. The new theme sweeps over the
@@ -460,7 +462,7 @@ tree's foot is on the same pixel in each, centred near the bottom.
 ## The panel
 
 Every setting lives in three's WebGPU Inspector (the button at the top
-right). A slider's box is a plain text field: a number typed into it may go
+right). H hides the Inspector, its button and all, and brings it back. A slider's box is a plain text field: a number typed into it may go
 past the slider's range, the box keeping it and the slider sitting at its
 nearest end, and a drag in it selects the text. The panel has
 one section per part of the scene, each with its own colors and

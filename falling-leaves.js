@@ -24,6 +24,7 @@ import {
   texture,
   time,
   uniform,
+  varying,
   vec3,
   vec4,
 } from 'three/tsl'
@@ -67,6 +68,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     amount: uniform(277), // how many fall at once
     spawning: uniform(1), // 0 while a new tree grows: no leaf leaves it
     looseFrom: uniform(0), // where the next shake's batch starts among the leaves past the amount
+    wearing: uniform(0), // how many times the leaf texture has changed
   }
   const u = uniforms
 
@@ -84,6 +86,9 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   const settled = instancedArray(MAX_LEAVES, 'float')
   // 1 as a shake knocks a leaf off, falling to 0 as the wind takes it
   const knocked = instancedArray(MAX_LEAVES, 'float')
+  // The leaf texture it left the tree in, counted as u.wearing: a leaf
+  // already off the tree keeps it when the texture changes
+  const worn = instancedArray(MAX_LEAVES, 'float')
 
   // A random point inside the crown, new each time it's asked for
   const spawn = (seed) => {
@@ -102,6 +107,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(tick)))
     settled.element(instanceIndex).assign(0)
     knocked.element(instanceIndex).assign(0)
+    worn.element(instanceIndex).assign(u.wearing)
   }
 
   // Start every free leaf somewhere in the crown, at a random point of its
@@ -112,6 +118,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     progresses.element(instanceIndex).assign(select(free(), progress, progress.negate()))
     settled.element(instanceIndex).assign(0)
     knocked.element(instanceIndex).assign(0)
+    worn.element(instanceIndex).assign(u.wearing)
   })().compute(MAX_LEAVES)
 
   const step = Fn(() => {
@@ -206,12 +213,18 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     return place(positionGeometry.mul(scale)).add(position).add(vec3(0, 0.005, 0))
   })()
 
-  // Alpha: one leaf in the tree's style, clipped hard, in the shadow too
+  // Alpha: one leaf in the tree's style, clipped hard, in the shadow too. A
+  // leaf that left the tree before the texture last changed, like the old
+  // tree's as a new one comes up, keeps the one before
   const leafTexture = texture(new THREE.Texture(), atlasUV())
   const leafColors = texture(new THREE.Texture(), atlasUV())
-  material.opacityNode = leafTexture.r
+  const oldTexture = texture(new THREE.Texture(), atlasUV())
+  const oldColors = texture(new THREE.Texture(), atlasUV())
+  const older = varying(select(worn.element(instanceIndex).lessThan(u.wearing), float(1), float(0)))
+  const opacity = mix(leafTexture.r, oldTexture.r, older)
+  material.opacityNode = opacity
   material.alphaTest = 0.5
-  material.maskShadowNode = leafTexture.r.greaterThan(0.5)
+  material.maskShadowNode = opacity.greaterThan(0.5)
   material.shadowSide = THREE.DoubleSide
 
   // Colour: the foliage's mid colour, each leaf its own shade of it, from a
@@ -221,7 +234,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   const shade = hash(instanceIndex.add(313))
   const themed = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
   // Or, on a tree in a dropped image's colours, the image's, shaded alike
-  const own = leafColors.rgb.mul(dot(themed, LUMA).div(dot(mid, LUMA).max(1e-4)))
+  const own = mix(leafColors.rgb, oldColors.rgb, older).mul(dot(themed, LUMA).div(dot(mid, LUMA).max(1e-4)))
   const color = mix(themed, own, imageColors)
   material.outputNode = vec4(holographic(toneMapped(color), normalWorld), output.a)
 
@@ -255,10 +268,15 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     nextFrom = (u.looseFrom.value + LOOSE) % pool
   }
 
-  // The leaf to cut out, and a dropped image's colours, if it has them
+  // The leaf to cut out, and a dropped image's colours, if it has them. The
+  // leaves off the tree keep the one they had until they leave it again
   function setTexture(texture, colors) {
+    if (texture === leafTexture.value && (!colors || colors === leafColors.value)) return
+    oldTexture.value = leafTexture.value
+    oldColors.value = leafColors.value
     leafTexture.value = texture
     if (colors) leafColors.value = colors
+    u.wearing.value++
   }
 
   return { mesh, uniforms, update, setTexture, shake, MAX_LEAVES }

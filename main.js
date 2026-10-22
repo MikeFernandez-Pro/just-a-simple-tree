@@ -189,14 +189,19 @@ scene.add(falling.mesh);
 // one dropped on the page or picked with the panel's button: picked in the
 // panel before there is one, it opens the file picker, and the leaves keep
 // what they wear until an image comes. Its leaves take the theme's colours
-// or its own
+// or its own. While a new tree is on its way, the old one keeps its leaves
+// as they blow away, and the new ones go on with the new tree
 let own = null;
+let held = false; // while the old tree is held until it has folded away
+let leafTextureWaiting = false;
 function setLeafTexture(name) {
   const mine = name === OWN_TEXTURE;
   if (mine && !own) {
     if (navigator.userActivation?.isActive) imageDrop.pick();
     return;
   }
+  leafTextureWaiting = held;
+  if (held) return;
   foliage.setLeafTexture(name, own);
   falling.setTexture(mine ? own.leaves : fallingTexture(name), own?.colors);
   showLeafColors();
@@ -252,7 +257,6 @@ const SPECIES = { oak, pine, cypress, willow, bush };
 // on its way, the old one is held until it has folded away
 let rebuildWanted = false;
 let leavesWanted = false;
-let held = false;
 function requestRebuild() {
   rebuildWanted = true;
 }
@@ -351,7 +355,9 @@ function pickTheme(name) {
 const { regrow } = createRegenerate({
   hold: (on) => {
     held = on;
-    if (!on) rebuildIfWanted();
+    if (on) return;
+    rebuildIfWanted();
+    if (leafTextureWaiting) setLeafTexture(params.leafTexture);
   },
   falling,
 });
@@ -641,7 +647,8 @@ const bar = createBar({
 
 // The keys: space grows a new tree, left and right step through the themes,
 // as their buttons run along the top, and up and down through the species,
-// as theirs run down the left side, round from either end. Each goes through
+// as theirs run down the left side, round from either end, and H hides the
+// panel. Each goes through
 // the panel's control, as a click does. Not while a field in the panel has
 // them, nor while the export menu is open, its choices taking the arrows.
 // Held down, an arrow steps once
@@ -659,6 +666,11 @@ addEventListener("keydown", (e) => {
   if (e.code === "Space") {
     e.preventDefault();
     bar.newTree();
+    return;
+  }
+  // H hides the Inspector, its button and all, for a clean screen to film
+  if (e.code === "KeyH" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    renderer.inspector.setVisible(!renderer.inspector.getVisible());
     return;
   }
   const step = KEY_STEPS[e.key];
