@@ -14,18 +14,29 @@
 
       /* The loader, there from the first paint until the tree's first frames
          are drawn: a white sticker like the buttons, a sapling sprouting in
-         it over and over, on the page's own background */
+         it over and over, on the page's own background. Once they are, the
+         sapling stands grown and the sticker pops into an enter button,
+         pressed in like the others when clicked */
       #loader { position: fixed; inset: 0; z-index: 20000; display: grid; place-items: center;
         background: inherit; transition: opacity .35s }
       #loader.done { opacity: 0; pointer-events: none }
+      #loader .card { position: relative; display: flex; align-items: center; gap: 14px; padding: 13px 24px 13px 18px;
+        border: 3px solid #46434d; border-radius: 10px; background: #fff; box-shadow: 5px 5px 0 var(--button-shadow);
+        font: 700 16px/1.2 monospace; letter-spacing: .02em; color: #2b2a30; transform: rotate(-2deg);
+        cursor: default; transition: box-shadow .08s, translate .08s }
+      #loader .enter { display: none }
+      #loader.ready .growing { display: none }
+      #loader.ready .enter { display: inline }
+      #loader.ready .card { cursor: pointer; animation: loader-pop .45s cubic-bezier(.34, 1.8, .64, 1) }
+      #loader.ready .card:hover { box-shadow: 7px 7px 0 var(--button-shadow) }
+      #loader.ready .card:active { box-shadow: 1px 1px 0 var(--button-shadow); translate: 4px 4px }
+      #loader.ready .stem, #loader.ready .leaf { animation: none; stroke-dashoffset: 0; scale: 1 }
+      @keyframes loader-pop { from { scale: .8 } to { scale: 1 } }
       /* Opening, the cover drawn by reveal.js, and the sticker popping away */
       #loader.opening { pointer-events: none }
       #loader .cover { position: absolute; inset: 0; width: 100%; height: 100% }
       #loader.opening .card { scale: 0; opacity: 0;
         transition: scale .3s cubic-bezier(.36, -0.6, .7, 1), opacity .3s .1s }
-      #loader .card { position: relative; display: flex; align-items: center; gap: 14px; padding: 13px 24px 13px 18px;
-        border: 3px solid #46434d; border-radius: 10px; background: #fff; box-shadow: 5px 5px 0 var(--button-shadow);
-        font: 700 16px/1.2 monospace; letter-spacing: .02em; color: #2b2a30; transform: rotate(-2deg) }
       #loader svg { width: 42px; height: 42px; overflow: visible }
       #loader .stem { stroke-dasharray: 10; animation: loader-stem 1.8s cubic-bezier(.5, 0, .3, 1) infinite }
       #loader .leaf { transform-box: fill-box; scale: 0; animation: loader-leaf 1.8s cubic-bezier(.34, 1.8, .64, 1) infinite }
@@ -44,15 +55,16 @@
   </head>
   <body>
     <div id="loader" role="status" aria-label="growing a tree">
-      <div class="card">
+      <button class="card" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="#2b2a30" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M5 21h14" />
           <path class="stem" d="M12 21v-10" />
           <path class="leaf left" d="M12 15c-4.2 0-6.5-2.6-6.5-6.2 4.2 0 6.5 2.6 6.5 6.2z" fill="#8fd16a" />
           <path class="leaf right" d="M12 12.5c0-3.8 2.2-6.5 6.3-6.5 0 3.8-2.2 6.5-6.3 6.5z" fill="#c4ec84" />
         </svg>
-        <span>growing a tree<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>
-      </div>
+        <span class="growing">growing a tree<span class="dots"><span>.</span><span>.</span><span>.</span></span></span>
+        <span class="enter">enter</span>
+      </button>
     </div>
     <script type="module" src="/main.js"></script>
   </body>

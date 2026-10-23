@@ -34,6 +34,7 @@ import { reveal } from "./reveal.js";
 import { createBar } from "./bar.js";
 import { createCodeView } from "./code-view.js";
 import { createRepoLink } from "./repo-link.js";
+import { createSound } from "./sound.js";
 import { exportGlb } from "./glb.js";
 import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
 import { bounds, vertices } from "./bounds.js";
@@ -261,7 +262,11 @@ const imageDrop = createImageDrop({
 // How many vertices the GLB would hold, the wood's and the leaves', kept up
 // to date as the tree is rebuilt and its cards are cut up
 const vertexCount = createVertexCount();
+// How much of the tree is in leaf, for the leaves' sound, worked out with
+// the vertex count as both change with the same things
+let leafiness = 1;
 function countVertices() {
+  leafiness = foliage.leafiness();
   vertexCount.show(
     tree.geometry.attributes.position.count,
     foliage.bakedVertices(),
@@ -368,6 +373,7 @@ function pickTheme(name) {
   if (themeSeconds) {
     sweep(themeSeconds);
     shake.start(themeSeconds);
+    sound.play("whoosh");
   }
   for (const [control, value] of themeBindings) {
     control.setValue(value(THEMES[name]));
@@ -385,6 +391,8 @@ const { regrow, waitToAppear, appear } = createRegenerate({
     if (leafTextureWaiting) setLeafTexture(params.leafTexture);
   },
   falling,
+  onBreak: () => sound.play("break"),
+  onSpringUp: () => sound.play("pop"),
 });
 // The first tree waits in the ground until the page is revealed
 waitToAppear();
@@ -665,9 +673,11 @@ const EXPORTS = [
   },
 ];
 // The material code a GLB needs to look as it did here, from its button
-// under the Inspector's, and the way to the repo
+// under the Inspector's, the way to the repo, and the sound of the wind
+// and the leaves beside it
 const codeView = createCodeView();
 createRepoLink();
+const sound = createSound({ leafiness: () => leafiness });
 const bar = createBar({
   onNewTree: newTree,
   exports: EXPORTS,
@@ -676,8 +686,8 @@ const bar = createBar({
 
 // The keys: space grows a new tree, left and right step through the themes,
 // as their buttons run along the top, and up and down through the species,
-// as theirs run down the left side, round from either end, and H hides the
-// panel. Each goes through
+// as theirs run down the left side, round from either end, H hides the
+// panel and M turns the sound off and on. Each goes through
 // the panel's control, as a click does. Not while a field in the panel has
 // them, nor while the export menu is open, its choices taking the arrows,
 // nor while the material code is open, its keys scrolling the code.
@@ -691,11 +701,24 @@ const KEY_STEPS = {
 const stepped = (keys, current, by) =>
   keys[(keys.indexOf(current) + by + keys.length) % keys.length];
 addEventListener("keydown", (e) => {
+  // Until the page is entered, Enter or space enters it, once it's ready,
+  // and no other key does anything
+  if (!entered) {
+    if (e.key === "Enter" || e.code === "Space") {
+      e.preventDefault();
+      enter();
+    }
+    return;
+  }
   const field = e.target.closest?.("input, select, textarea");
   if (field || codeView.isOpen()) return;
   if (e.code === "Space") {
     e.preventDefault();
     bar.newTree();
+    return;
+  }
+  if (e.code === "KeyM" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.repeat) {
+    sound.toggle();
     return;
   }
   // H hides the Inspector, its button and all, for a clean screen to film
@@ -1056,10 +1079,12 @@ function matchPage() {
   );
 }
 
-// The loader in index.html, there from the first paint, opens on the scene
-// once the frames come steadily: the first ones build the shaders, and a
-// few in the GPU can stall for a second or two. Then a ragged circle opens
-// from the middle of the tree, the tree springing up through it
+// The loader in index.html, there from the first paint, turns into an
+// enter button once the frames come steadily: the first ones build the
+// shaders, and a few in the GPU can stall for a second or two. Entering,
+// with a click or Enter or space, opens a ragged circle from the middle of
+// the tree, the tree springing up through it, and the click lets the sound
+// start
 const STEADY_FRAMES = 30; // quick frames in a row before the page opens
 const QUICK = 50; // milliseconds, the longest a frame may take and still count as quick
 const MOST_WAIT = 10000; // milliseconds after the first frame it opens anyway
@@ -1077,9 +1102,21 @@ function waitForSteadyFrames() {
   loading = false;
   doneLoading();
 }
+let ready = false;
+let entered = false;
 function doneLoading() {
   const loader = document.getElementById("loader");
   if (!loader) return;
+  ready = true;
+  loader.classList.add("ready");
+  loader.setAttribute("aria-label", "the tree is ready");
+  loader.querySelector(".card").addEventListener("click", enter);
+}
+function enter() {
+  const loader = document.getElementById("loader");
+  if (!ready || entered || !loader) return;
+  entered = true;
+  sound.begin();
   const middle = controls.target.clone().project(camera);
   reveal(loader, {
     x: ((middle.x + 1) / 2) * innerWidth,
@@ -1094,6 +1131,7 @@ function frame() {
   keepAboveGround();
   controls.update();
   framing.update(performance.now());
+  sound.update();
   shake.update(performance.now());
   updateHologram(performance.now());
   rebuildIfWanted();

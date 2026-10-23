@@ -6,10 +6,13 @@ import * as THREE from 'three/webgpu'
 // comes closer, so a wide screen sees the tree as it always did. It eases
 // out as the tree grows bigger and back in as it shrinks, and jumps
 // straight there when the screen changes shape. Once you zoom yourself the
-// distance is yours, until the screen changes shape again
+// distance is yours, until the screen changes shape again. Your zooms ease
+// too: the controls jump the camera to each step of the wheel or pinch, and
+// it's put back and glides there instead
 
 const MARGIN = 12 // pixels kept clear between the tree and the buttons
-const EASE = 4 // how quickly it eases to a new distance, per second
+const EASE = 4 // how quickly it eases to a new distance of its own, per second
+const ZOOM_EASE = 10 // how quickly it eases to one you zoomed to, per second
 
 // clear gives the pixels the buttons take up along each edge of the
 // screen, { top, bottom, left, right }
@@ -70,12 +73,18 @@ export function createFraming({ camera, controls, clear }) {
     const seconds = Math.min((now - last) / 1000, 0.1)
     last = now
     const distance = camera.position.distanceTo(controls.target)
-    // Orbiting and panning keep the distance, so only a zoom changes it
-    if (Math.abs(distance - placed) > 1e-3) following = false
-    if (!following || !box) return
-    if (stale) goal = fitting()
-    stale = false
-    placed = jump ? goal : THREE.MathUtils.damp(distance, goal, EASE, seconds)
+    // Orbiting and panning keep the distance, so only a zoom changes it.
+    // Each step takes the goal on by as much as it took the camera, so steps
+    // made while it's still gliding add up as they would without the glide
+    if (Math.abs(distance - placed) > 1e-3) {
+      following = false
+      goal = THREE.MathUtils.clamp((goal * distance) / placed, controls.minDistance, controls.maxDistance)
+    } else if (following) {
+      if (!box) return
+      if (stale) goal = fitting()
+      stale = false
+    }
+    placed = jump ? goal : THREE.MathUtils.damp(placed, goal, following ? EASE : ZOOM_EASE, seconds)
     jump = false
     camera.position.sub(controls.target).setLength(placed).add(controls.target)
   }

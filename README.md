@@ -525,15 +525,33 @@ tree's foot is on the same pixel in each, centred near the bottom.
   still sees the whole crown. It never comes closer than where it starts,
   so a wide screen sees the tree as before. It eases out as the tree grows
   and back as it shrinks. Once you zoom yourself the distance is yours,
-  until the screen changes shape.
+  until the screen changes shape. Zooming, with the wheel or a pinch,
+  glides to each step instead of jumping there.
 - **Loading**: until the scene is ready, a sapling sprouts over and over in
   a sticker saying "growing a tree…". It's in `index.html`, so it shows
   before any of the code has arrived, and stays until the frames come
-  steadily. Then the sticker pops away and the page opens in a circle from
-  the middle of the tree, its edge ragged with Perlin noise and lit by a
+  steadily. Then the sapling stands grown and the sticker pops into an
+  **enter** button. Clicking it, or pressing Enter or space, pops it away
+  and the page opens in a circle from the middle of the tree, its edge ragged with Perlin noise and lit by a
   bright line, like a theme's sweep, while the first tree springs up out of
   the ground as a new one does. The falling leaves start once it has
   grown.
+- **Sound**: the wind and the leaves rustling, two recorded loops, each as
+  loud as the Wind section makes it. The wind gets louder in step with its
+  strength. The leaves follow their flutter and how much of the tree is in
+  leaf: quieter while they're young and small, fading as the age drops
+  them, and silent on a bare tree. Both swell as a theme's gust blows and die away as
+  the wind's speed comes down to nothing. Under them, three lofi tracks
+  play one after the other, round and round. Picking a theme plays a
+  whoosh, peaking about two thirds of the way through the sweep. Each new
+  tree, a new species or seed, snaps the old one like wood as it breaks
+  down, and pops as it springs up. It all starts when you press
+  **enter**, easing in, as a browser only lets a page make sound once
+  you've done something on it. The speaker sticker beside the GitHub one,
+  or M, turns it all off and on. Hovering it brings out a bar above it for
+  the volume of everything; a phone has its own volume buttons, so it has
+  no bar. Every visit starts with the sound on, at the volume last set. It
+  goes quiet while the page is hidden.
 
 ## The panel
 
@@ -729,6 +747,9 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | `bar.js` | the buttons at the bottom: new tree, and export with its menu |
 | `code-view.js` | the material button and its code window, the snippets read out of this README |
 | `repo-link.js` | the GitHub sticker in the bottom right corner |
+| `sound.js` | the wind's and the leaves' sound, and the sticker turning it off and on |
+| `public/sounds/` | the wind and leaves loops, the whoosh, the wood break and the pop |
+| `public/music/` | the three lofi tracks, and their credits and license |
 | `image-drop.js` | dropping or picking an image for the leaves, and keeping it |
 | `hologram.js` | the tree as a hologram while an image is dragged over the page, and the scan that puts the new leaves on |
 | `themes.js` | the colour themes and the buttons along the top picking them |
@@ -769,7 +790,24 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
   are fixed in the world rather than facing the camera.
 - The falling leaves build on Bruno Simon's TSL petals lesson in
   [Three.js Journey](https://threejs-journey.com).
+- The music: [Lofi Chill Vlog Beats](https://pixabay.com/music/lofi-lofi-chill-vlog-beats-573883/)
+  and [Lofi Sunny Cafe](https://pixabay.com/music/lofi-lofi-sunny-cafe-568156/)
+  by [alex-morgan](https://pixabay.com/users/alex-morgan-54692529/), and
+  [Beautiful Lofi](https://pixabay.com/music/lofi-beautiful-lofi-603162/)
+  by [ZephiraMusic](https://pixabay.com/users/zephiramusic-54643547/), all
+  on Pixabay under the
+  [Pixabay Content License](https://pixabay.com/service/license-summary/).
+  The whoosh, [Whoosh Cinematic](https://pixabay.com/sound-effects/whoosh-cinematic-376875/),
+  and the pop, [Clean Minimal Pop](https://pixabay.com/sound-effects/clean-minimal-pop-467466/),
+  are by [DRAGON-STUDIO](https://pixabay.com/users/dragon-studio-38165424/),
+  and the wood breaking, [Wood Break](https://pixabay.com/sound-effects/m%C3%A9nage-wood-break-40011/),
+  is by BOAAY on Freesound, shared by
+  [freesound_community](https://pixabay.com/users/freesound_community-46691455/),
+  all under the same license. See [public/music/CREDITS.md](public/music/CREDITS.md).
 
 ## License
 
-[MIT](LICENSE)
+The code is [MIT](LICENSE). The music in `public/music/` and the whoosh,
+wood break and pop in `public/sounds/` aren't: they're under the Pixabay Content License, which
+doesn't allow distributing them on their own, so get them from Pixabay to
+use them elsewhere.

@@ -77,7 +77,10 @@ const easeOut = (t) => 1 - (1 - t) ** 3;
 // hold(true) keeps the tree as it is, whatever changes, until hold(false)
 // rebuilds it with the latest. A change that wants a new tree is made, then
 // regrow called: the tree held shows until it has shrunk away
-export function createRegenerate({ hold, falling }) {
+// onBreak is called as each new tree is asked for, the old one breaking
+// down, and onSpringUp as each new tree starts springing up, but not the
+// first, which comes up as the page opens
+export function createRegenerate({ hold, falling, onBreak, onSpringUp }) {
   let wanted = false;
   let running = null;
 
@@ -164,6 +167,7 @@ export function createRegenerate({ hold, falling }) {
       wanted = false;
       hold(false);
       burst.value = 0;
+      onSpringUp();
       await comeUp();
     }
     done();
@@ -211,6 +215,7 @@ export function createRegenerate({ hold, falling }) {
 
   // Resolves once the newest tree has grown
   function regrow() {
+    onBreak();
     hold(true);
     wanted = true;
     running ??= run();

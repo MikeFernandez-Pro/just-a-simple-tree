@@ -623,6 +623,14 @@ export function createFoliage() {
     return on
   }
 
+  // How much of the tree is in leaf, 0 to 1: the cards on it, each by its
+  // size, a young one counting for less, over all the cards it grew. Its
+  // leaves' age takes it down as they drop
+  function leafiness() {
+    if (!mesh.count) return 0
+    return onTree().reduce((sum, { size }) => sum + size, 0) / mesh.count
+  }
+
   // How many vertices bake gives: every card's own, none shared
   function bakedVertices() {
     return onTree().length * cards[segments].attributes.position.count
@@ -651,6 +659,7 @@ export function createFoliage() {
     setSegments,
     bake,
     bakedVertices,
+    leafiness,
     reach,
   }
 }
