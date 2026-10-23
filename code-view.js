@@ -1,5 +1,5 @@
 import readme from './README.md?raw'
-import { INK, LINE } from './stickers.js'
+import { INK, LINE, PHONE } from './stickers.js'
 
 // The material code that gives the tree's GLB its look back in three.js,
 // celShade, in a little editor window over the page: a tab for
@@ -10,7 +10,8 @@ import { INK, LINE } from './stickers.js'
 // White with a charcoal outline like the rest of the page's buttons, and
 // coloured inside like a light editor theme, the same whatever the page's
 // theme. It's read out of the README, so the two never differ: each
-// renderer's code from the <details> whose summary names it
+// renderer's code from the <details> whose summary names it. A phone has no
+// button for it, the code being for a desktop's editor
 
 const MUTED = '#8a8692' // the tab not picked
 const RULE = '#ecebef' // the line between the gutter and the code
@@ -134,6 +135,7 @@ export function createCodeView() {
       .code-view-opener span { display: none }
       .code-view .dots { display: none }
     }
+    @media ${PHONE} { .code-view-opener { display: none } }
   `
   document.head.appendChild(style)
 

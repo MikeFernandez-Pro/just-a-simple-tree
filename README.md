@@ -34,7 +34,11 @@ from `main` by GitHub Actions on every push.
 **export** opens a menu of four exports, in two groups, 3D models and
 images; hover one to see what it's for. The panel's **Export** section sets
 how each is made, and **export settings…** at the bottom of the menu opens
-it. Every image is a PNG, the GLBs' textures included: see
+it. Each of its folders ends in its own **export** button, so you can change
+a setting and export again without going back to the menu. A phone has no
+**export** button in the bar, nor the vertex count, nor the **material**
+button, leaving more of the screen to the tree; its exports are still in
+the panel. Every image is a PNG, the GLBs' textures included: see
 [GLB textures](#glb-textures).
 
 **material**, the button under the panel's at the top right, opens the
@@ -510,6 +514,20 @@ tree's foot is on the same pixel in each, centred near the bottom.
   sheet or an impostor, as
   described in [Using the export](#using-the-export). The GLB holds the wood
   and the leaves; the grass, the floor and the falling leaves stay in the app.
+- **Framing**: the camera backs away as far as the whole tree needs to fit
+  between the buttons round the screen's edges, so a phone held upright
+  still sees the whole crown. It never comes closer than where it starts,
+  so a wide screen sees the tree as before. It eases out as the tree grows
+  and back as it shrinks. Once you zoom yourself the distance is yours,
+  until the screen changes shape.
+- **Loading**: until the scene is ready, a sapling sprouts over and over in
+  a sticker saying "growing a tree…". It's in `index.html`, so it shows
+  before any of the code has arrived, and stays until the frames come
+  steadily. Then the sticker pops away and the page opens in a circle from
+  the middle of the tree, its edge ragged with Perlin noise and lit by a
+  bright line, like a theme's sweep, while the first tree springs up out of
+  the ground as a new one does. The falling leaves start once it has
+  grown.
 
 ## The panel
 
@@ -677,17 +695,22 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 
 | control | what it does |
 | --- | --- |
+| **tree** | |
+| export | saves the tree as a GLB |
 | **texture** | |
 | size | the image's width and height: 1024, 2048 or 4096 pixels |
 | transparent (RGBA) | a clear background instead of the theme's |
+| export | saves the texture |
 | **sprite sheet** | |
 | views | how many views round the tree: 4, 8 or 16 |
 | frame size | each view's width and height: 128, 256 or 512 pixels |
 | elevation | how far above level the views look from, in degrees |
+| export | saves the sprite sheet |
 | **impostor** | |
 | views a side | 6, 8 or 12 views a side of the atlas |
 | atlas size | the atlas's width and height, from 512 to 8192 pixels |
 | each view, on the GPU | read-outs: how many pixels each view gets, and how much GPU memory the atlas takes with its mipmaps |
+| export | saves the impostor as a GLB |
 
 </details>
 
@@ -720,6 +743,8 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | `grass.js` | the grass patch round the tree's foot |
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
+| `reveal.js` | the page opening on the scene once it has loaded, in a ragged circle from the tree |
+| `framing.js` | the camera backing away until the whole tree fits on screen |
 | `regenerate.js` | a new tree, from a new seed or species: the burst, the shrink and the springy pop |
 | `glb.js` | the GLB export: the tree or its impostor |
 | `textures.js` | how a GLB writes its textures as PNGs |

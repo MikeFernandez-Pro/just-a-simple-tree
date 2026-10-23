@@ -30,6 +30,7 @@ import { createImageDrop } from "./image-drop.js";
 import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
 import { createRegenerate } from "./regenerate.js";
+import { reveal } from "./reveal.js";
 import { createBar } from "./bar.js";
 import { createCodeView } from "./code-view.js";
 import { createRepoLink } from "./repo-link.js";
@@ -41,6 +42,7 @@ import { createSpeciesButtons } from "./species-buttons.js";
 import { createVertexCount } from "./vertex-count.js";
 import { sweep, sweptBackground } from "./transition.js";
 import { createShake } from "./shake.js";
+import { createFraming } from "./framing.js";
 import { scanUp, showHologram, updateHologram } from "./hologram.js";
 import {
   barkColors,
@@ -99,6 +101,22 @@ function keepAboveGround() {
     Math.PI / 2 - LEAST_TILT,
   );
 }
+
+// The camera backs away as far as the whole tree needs to fit on screen,
+// between the theme buttons along the top, the species down the left and
+// the bar at the bottom, a phone's narrow screen most of all
+const edgeOf = (selector) =>
+  document.querySelector(selector)?.getBoundingClientRect();
+const framing = createFraming({
+  camera,
+  controls,
+  clear: () => ({
+    top: edgeOf(".themes")?.bottom ?? 0,
+    bottom: innerHeight - (edgeOf(".bar")?.top ?? innerHeight),
+    left: edgeOf(".species")?.right ?? 0,
+    right: 0,
+  }),
+});
 
 // The sun, and a sky-and-ground fill for what it doesn't reach
 scene.add(sun);
@@ -294,6 +312,7 @@ function rebuild() {
 function scatterLeaves() {
   foliage.update(grown.clumps, params);
   countVertices();
+  framing.fit(bounds(tree.geometry, foliage).box);
 }
 
 function placeSun() {
@@ -355,7 +374,7 @@ function pickTheme(name) {
 // A new tree, with a burst, from a new seed or a new species. When the old
 // tree has folded away, the new one is rebuilt at once, not left for the
 // next frame
-const { regrow } = createRegenerate({
+const { regrow, waitToAppear, appear } = createRegenerate({
   hold: (on) => {
     held = on;
     if (on) return;
@@ -364,6 +383,8 @@ const { regrow } = createRegenerate({
   },
   falling,
 });
+// The first tree waits in the ground until the page is revealed
+waitToAppear();
 // A new seed: from the button at the bottom or space, even while a tree
 // grows. It resolves once the latest tree has grown. It goes through its
 // slider, so the panel shows it
@@ -880,8 +901,15 @@ const darknessControl = shadowFolder
 // How the export menu's choices are made, everything written as PNGs: the
 // texture's size and background; the sprite sheet's views, their size and
 // how far above level they look from; the impostor's views a side and its
-// atlas's size
+// atlas's size. Each has its own folder, the tree's only its button, and
+// each folder ends in an export button doing what its choice in the menu
+// does, through the bar, so one export still runs at a time
 const exporting = renderer.inspector.createParameters("Export");
+function exportButton(folder, label) {
+  const { run } = EXPORTS.find((choice) => choice.label === label);
+  folder.add({ export: () => bar.run(run) }, "export");
+}
+exportButton(exporting.addFolder("tree"), "tree");
 // Under an impostor's views and atlas, what they give: how many pixels a
 // view has, which is as big as the tree can stand on screen before it
 // blurs, and how much GPU memory the atlas takes with its mipmaps
@@ -907,12 +935,14 @@ textureFolder
   .add(exportParams, "textureSize", ["1024", "2048", "4096"])
   .name("size");
 textureFolder.add(exportParams, "textureAlpha").name("transparent (RGBA)");
+exportButton(textureFolder, "texture");
 const spriteFolder = exporting.addFolder("sprite sheet");
 spriteFolder.add(exportParams, "spriteAngles", ["4", "8", "16"]).name("views");
 spriteFolder
   .add(exportParams, "spriteSize", ["128", "256", "512"])
   .name("frame size");
 spriteFolder.add(exportParams, "spriteElevation", 0, 60, 1).name("elevation");
+exportButton(spriteFolder, "sprite sheet");
 const impostorFolder = exporting.addFolder("impostor");
 const impostorFramesControl = impostorFolder
   .add(exportParams, "impostorFrames", IMPOSTOR_FRAMES)
@@ -927,6 +957,7 @@ const impostorNote = atlasNote(
 );
 impostorFramesControl.onChange(impostorNote.update);
 impostorAtlasControl.onChange(impostorNote.update);
+exportButton(impostorFolder, "impostor");
 
 // Every control a theme sets, and its value in a theme. The page starts in
 // its first theme
@@ -996,6 +1027,7 @@ addEventListener("resize", () => {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
+  framing.resize();
 });
 
 // The page behind the canvas in the background's colour, and the browser's
@@ -1019,14 +1051,48 @@ function matchPage() {
   );
 }
 
+// The loader in index.html, there from the first paint, opens on the scene
+// once the frames come steadily: the first ones build the shaders, and a
+// few in the GPU can stall for a second or two. Then a ragged circle opens
+// from the middle of the tree, the tree springing up through it
+const STEADY_FRAMES = 30; // quick frames in a row before the page opens
+const QUICK = 50; // milliseconds, the longest a frame may take and still count as quick
+const MOST_WAIT = 10000; // milliseconds after the first frame it opens anyway
+let firstFrame = null;
+let lastFrame = null;
+let steadyFrames = 0;
+let loading = true;
+function waitForSteadyFrames() {
+  const now = performance.now();
+  firstFrame ??= now;
+  steadyFrames =
+    lastFrame !== null && now - lastFrame < QUICK ? steadyFrames + 1 : 0;
+  lastFrame = now;
+  if (steadyFrames < STEADY_FRAMES && now - firstFrame < MOST_WAIT) return;
+  loading = false;
+  doneLoading();
+}
+function doneLoading() {
+  const loader = document.getElementById("loader");
+  if (!loader) return;
+  const middle = controls.target.clone().project(camera);
+  reveal(loader, {
+    x: ((middle.x + 1) / 2) * innerWidth,
+    y: ((1 - middle.y) / 2) * innerHeight,
+    onAppear: appear,
+  });
+}
+
 renderer.setAnimationLoop(frame);
 function frame() {
   matchPage();
   keepAboveGround();
   controls.update();
+  framing.update(performance.now());
   shake.update(performance.now());
   updateHologram(performance.now());
   rebuildIfWanted();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));
+  if (loading) waitForSteadyFrames();
 }

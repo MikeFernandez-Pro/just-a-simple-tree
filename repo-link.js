@@ -1,9 +1,10 @@
-import { LINE } from './stickers.js'
+import { LINE, PHONE } from './stickers.js'
 
 // A round white sticker in the bottom right corner with GitHub's mark,
 // opening the repo in a new tab: outlined and shadowed like the other
 // stickers, so it reads on any background and theme. Where the bar at the
-// bottom would reach it, it sits higher up instead
+// bottom would reach it, it sits higher up instead, except on a phone, whose
+// bar is only the new tree button
 
 const REPO = 'https://github.com/MikeFernandez-Pro/just-a-simple-tree'
 const SIZE = 44 // its width, in pixels
@@ -26,6 +27,7 @@ export function createRepoLink() {
       .repo-link { right: 16px; bottom: 104px; width: ${SIZE * 0.8}px; height: ${SIZE * 0.8}px; border-width: 2.5px;
         box-shadow: 3px 3px 0 var(--button-shadow) }
     }
+    @media ${PHONE} { .repo-link { bottom: 24px } }
   `
   document.head.appendChild(style)
 

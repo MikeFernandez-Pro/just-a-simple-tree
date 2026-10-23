@@ -1,4 +1,4 @@
-import { INK, LINE } from './stickers.js'
+import { INK, LINE, PHONE } from './stickers.js'
 
 // The buttons at the bottom, like stickers: white, a soft outline and a
 // hard shadow off to the side, tilted a little, so they read on any
@@ -10,7 +10,8 @@ import { INK, LINE } from './stickers.js'
 // menu above it of what to save, grouped as 3D models and images, each
 // just its name, what it's for in its tooltip, with a way to the panel's
 // settings for them, where the file types are picked. It shows busy while it exports, as one export runs at
-// a time
+// a time, the panel's own export buttons going through it too. A phone has
+// no export button, only a new tree, its exports left to the panel
 
 const MUTED = '#8a8692' // the notes under the buttons' words, and the menu's headings
 
@@ -72,6 +73,7 @@ export function createBar({ onNewTree, exports, onSettings }) {
       .bar > button .words { white-space: normal }
       .bar .menu { right: 50%; translate: 50% 0 }
     }
+    @media ${PHONE} { .bar > button.export { display: none } }
   `
   document.head.appendChild(style)
 
@@ -140,9 +142,11 @@ export function createBar({ onNewTree, exports, onSettings }) {
   // Export: busy while it runs, then saved for a moment, unless it failed.
   // Another export may start while saved still shows, and its busy replaces it
   const save = sticker({ icon: 'download', wordings: ['export', 'exporting…', 'saved'], note: '(glb, png)', after: 'caret' })
+  save.button.classList.add('export')
   let exporting = false
   let runs = 0
   async function run(what) {
+    if (exporting) return
     exporting = true
     const mine = ++runs
     save.button.classList.add('running')
@@ -227,5 +231,5 @@ export function createBar({ onNewTree, exports, onSettings }) {
   bar.append(menu)
   document.body.appendChild(bar)
 
-  return { newTree, menuOpen: isOpen }
+  return { newTree, menuOpen: isOpen, run }
 }

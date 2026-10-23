@@ -86,9 +86,10 @@ export function closeAll(section) {
 // A button at the bottom of a section or folder putting back the values its
 // controls have now, or for those in resetTo, the value it gives when
 // pressed. Only the controls that differ are set, so nothing runs for those
-// already there
+// already there. One with only buttons has nothing to put back, and no reset
 function resetButton(group, label, resetTo) {
   const starting = controls(group).map(({ editor }) => [editor, valueOf(editor)])
+  if (!starting.length) return
   const reset = () => {
     for (const [control, value] of starting) {
       const target = resetTo.has(control) ? resetTo.get(control)() : value

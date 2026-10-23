@@ -9,6 +9,10 @@
 // on a dark background), and the words
 export const LINE = '#46434d'
 export const INK = '#2b2a30'
+// A phone, held either way: a touch screen too small for the vertex count,
+// the export button and the material button, exporting and the material
+// code being for a desktop's tools anyway
+export const PHONE = '(pointer: coarse) and (max-width: 480px), (pointer: coarse) and (max-height: 500px)'
 const SIZE = 50 // a sticker's width, in pixels
 
 let styled = false

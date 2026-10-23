@@ -15,7 +15,8 @@ import {
 // to rest, while its branches shoot out and its leaves pop on in a quick
 // soft wave from the trunk to the tips. A new seed or a new species both
 // go this way. Falling leaves stop leaving the old tree, and start again from
-// the new one once it has grown
+// the new one once it has grown. The first tree, as the page opens, comes up
+// the same way from bare ground, with no old one to blow away
 
 // 0 bare ground, 1 fully grown: the branches unfolding and the leaves popping
 export const growth = uniform(1);
@@ -163,20 +164,49 @@ export function createRegenerate({ hold, falling }) {
       wanted = false;
       hold(false);
       burst.value = 0;
-      growth.value = 0;
-      treeSize.leaves = true;
-      const grow = tween(
-        GROW_SECONDS,
-        (t) => (growth.value = 1 - (1 - t) ** 2),
-        () => wanted,
-      );
-      await springUp();
-      await grow;
+      await comeUp();
     }
+    done();
+  }
+
+  // The tree springing up out of the ground, its branches shooting out and
+  // its leaves popping on, until it has grown or another change comes
+  async function comeUp() {
+    growth.value = 0;
+    treeSize.leaves = true;
+    const grow = tween(
+      GROW_SECONDS,
+      (t) => (growth.value = 1 - (1 - t) ** 2),
+      () => wanted,
+    );
+    await springUp();
+    await grow;
+  }
+
+  function done() {
     growth.value = 1;
     treeSize.leaves = true;
     falling.uniforms.spawning.value = 1;
     running = null;
+  }
+
+  // The first tree kept down in the ground, and no leaf falling, until
+  // appear brings it up
+  function waitToAppear() {
+    growth.value = 0;
+    treeSize.width = treeSize.height = 0;
+    falling.uniforms.spawning.value = 0;
+  }
+
+  // The first tree coming up. A new tree asked for meanwhile takes over
+  // from wherever it got to, as it does from a growing one
+  function appear() {
+    running ??= (async () => {
+      await comeUp();
+      if (wanted) await run();
+      else done();
+    })();
+    return running;
   }
 
   // Resolves once the newest tree has grown
@@ -187,5 +217,5 @@ export function createRegenerate({ hold, falling }) {
     return running;
   }
 
-  return { regrow };
+  return { regrow, waitToAppear, appear };
 }

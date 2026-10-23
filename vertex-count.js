@@ -1,9 +1,10 @@
-import { INK, LINE } from './stickers.js'
+import { INK, LINE, PHONE } from './stickers.js'
 
 // How many vertices exporting the tree as a .glb would write, the wood's and the leaves', and
 // under a rule both together, on a small white card in the bottom left
 // corner, outlined and shadowed like the bar's buttons so it reads on any
-// background and theme. On a small screen it sits above the bar instead
+// background and theme. On a small screen it sits above the bar instead,
+// and on a phone it isn't there at all
 
 const MUTED = '#77737f' // the words, the numbers being in ink
 
@@ -25,6 +26,7 @@ export function createVertexCount() {
     @media (max-width: 480px), (max-height: 500px) {
       .vertex-count { bottom: 100px }
     }
+    @media ${PHONE} { .vertex-count { display: none } }
   `
   document.head.appendChild(style)
 
