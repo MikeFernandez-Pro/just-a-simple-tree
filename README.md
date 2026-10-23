@@ -515,24 +515,180 @@ tree's foot is on the same pixel in each, centred near the bottom.
 Every setting lives in three's WebGPU Inspector (the button at the top
 right). H hides the Inspector, its button and all, and brings it back. A slider's box is a plain text field: a number typed into it may go
 past the slider's range, the box keeping it and the slider sitting at its
-nearest end, and a drag in it selects the text. The panel has
-one section per part of the scene, each with its own colors and
-debug views: the tree (theme, species, its shape, trunk and mesh with the
-wireframe; the shape shows only the species' own sliders, and the bush,
-which has no wood, hides the wood's sliders, wireframe and colours, and
-drops no leaves, so it hides falling leaves too),
-the leaves (their age, clumps, with a view of them cel shaded in the
-leaves' colours and the cards out of the way, cards, shading, and colours,
-the turned ones included), wind, the grass (its
-size, blades, wind strength, shading and colours), falling leaves, and
-the lights (background, sun, sky, shadows), and the export
-(the texture's size and transparency, the sprite sheet's views, and the impostor's).
-Each section and folder has its own reset, the filter box finds a setting by
-name, and **copy config** copies every value as JSON.
+nearest end, and a drag in it selects the text. The panel has one section
+per part of the scene: Tree, Leaves, Wind, Grass, Falling leaves, Lights and
+Export. Each section and folder has its own reset, the filter box finds a
+setting by name, and **copy config** copies every value as JSON.
 
 The page's address always holds every setting changed from the start, so
 **copy link** (or the address bar) shares this exact tree: opening the link
 sets them all again.
+
+A theme sets every colour in the panel, and the shadows' darkness. A species
+puts on its own size, main limbs, spread, clumps, droop, crookedness, trunk
+thickness, base flare, trunk height, clump size, cards per clump, leaf
+texture, card size, roundness, wind strength, leaf flutter and falling
+amount. A reset goes back to the current theme's and species' values. The
+debug views are only there to look at how the tree is made: they stay out of
+the address, so a link always opens without them.
+
+### Every control
+
+<details>
+<summary><b>Tree</b>: theme, species, shape and the wood's colours</summary>
+
+| control | what it does |
+| --- | --- |
+| theme | the colour theme, as the buttons along the top and the left and right arrow keys pick it |
+| species | the kind of tree, as the buttons down the left and the up and down arrow keys pick it |
+| **shape** | |
+| seed | the number the tree grows from: the same seed and settings always grow the same tree. **new tree** and space pick a new one |
+| wireframe | *debug*: the wood's mesh as lines, in place of the wood |
+| **colors** | |
+| shadow, mid, light | the wood's three cel bands, from the shadow side to the lit one |
+
+The shape folder only shows the sliders the species uses. The bush, having
+no wood, hides the wood's sliders, the wireframe and the wood's colours.
+
+| slider | species | what it does |
+| --- | --- | --- |
+| size | all | the tree's height |
+| main limbs | oak, willow | how many limbs the trunk splits into |
+| levels | oak | how many times each limb branches again |
+| branches | oak | how many branches grow at each fork |
+| spread | oak, bush | how far the limbs, or the bush's clumps, reach out |
+| droop | pine, cypress | how the branches bend: down above 0, up below it |
+| whorls | pine | how many tiers of branches ring the trunk |
+| branches per whorl | pine | how many branches each tier has |
+| slenderness | cypress | higher grows it taller and narrower |
+| branch count | cypress | how many branches climb its spiral |
+| strands | willow | how many strands hang from its limbs |
+| hang | willow | how far down towards the ground the strands hang |
+| clumps | bush | how many leaf clumps are heaped into its dome |
+| crookedness | all with wood | how much the branches kink and wander |
+| trunk thickness | all with wood | how thick the trunk is, and the branches with it |
+| base flare | all with wood | how much wider the trunk spreads at the ground, like roots |
+| trunk height | oak, cypress | bare trunk under the oak's split or the cypress's crown, in metres |
+| split height | oak | how far up the trunk the limbs split off |
+| split scatter | oak | how far down the trunk the limbs may leave it: at 0, all from its top |
+| sides | all with wood | sides round each branch: more smooth the cel bands' edges |
+| smoothness | all with wood | rings per kink along each branch's curve |
+| variety | all | how far a seed's own character takes its tree from the species' average: at 0, the average |
+
+</details>
+
+<details>
+<summary><b>Leaves</b>: age, clumps, cards, shading and colours</summary>
+
+| control | what it does |
+| --- | --- |
+| age | the leaves through a year: unfolding at 0, full grown by 0.25, turning from 0.45, bare at 1. See [What it does](#what-it-does) |
+| **clumps** | |
+| clump size | scales every leaf clump, and its cards with it |
+| evenness | takes every clump towards one size, keeping their total leaf area |
+| cards per clump | how many leaf cards a clump gets; bigger clumps get more |
+| show clumps | *debug*: the clumps alone, cel shaded in the leaves' colours |
+| keep buried cards | *debug*: puts back the cards left out deep inside a neighbouring clump |
+| **cards** | |
+| texture | the leaves painted on each card: round, pointed or oak clusters, pine needles, willow leaves, or your image |
+| load image… | picks an image for the leaves, as dropping one on the page does |
+| colors from | for your image: the theme's colours, or the image's own |
+| size | how big each card is |
+| segments | how many squares each card is cut into, from 1 × 1 to 4 × 4; they only show once roundness bends them |
+| roundness | how far each card wraps round its clump's sphere |
+| show leaves | *debug*: hides the leaf cards |
+| show texture | *debug*: off shows the bare cards |
+| **shading** | |
+| shadow side | how much darker the side of the crown away from the sun goes |
+| ao | how much the ambient occlusion darkens the leaves deep in the crown |
+| ao distance | how far out the ambient occlusion looks for leaves blocking the light |
+| show normals | *debug*: the cards coloured by their normals |
+| **colors** | |
+| shadow, mid, light | the leaves' three cel bands |
+| turned shadow, turned mid, turned light | the colours the leaves turn to as they age |
+| variation | how far each clump's colours stray from its neighbours' |
+
+</details>
+
+<details>
+<summary><b>Wind</b></summary>
+
+| control | what it does |
+| --- | --- |
+| direction | which way the wind blows, round the tree |
+| strength | how far the tree sways |
+| speed | how fast the gusts travel through it |
+| gust size | how big the gusts are, in metres: smaller ones come more often |
+| leaf flutter | how far each leaf card rocks |
+
+</details>
+
+<details>
+<summary><b>Grass</b></summary>
+
+| control | what it does |
+| --- | --- |
+| **blades** | |
+| patch radius | how far the patch reaches from the tree's foot |
+| count | how many blades it has |
+| height, width | each blade's size |
+| wind strength | how far the blades lean in the wind |
+| **shading** | |
+| in shadow | how dark the grass goes in the tree's shadow |
+| **colors** | |
+| root, tip | the colour at the foot of a blade and at its tip |
+
+</details>
+
+<details>
+<summary><b>Falling leaves</b>: hidden for the bush</summary>
+
+| control | what it does |
+| --- | --- |
+| amount | how many leaves are falling at once |
+| leaf size | how big each falling leaf is |
+| fall speed | how fast they fall, in metres per second, before the wind |
+| lifetime | seconds from a leaf leaving the tree to its vanishing from the floor |
+
+</details>
+
+<details>
+<summary><b>Lights</b>: background, sun, sky and shadows</summary>
+
+| control | what it does |
+| --- | --- |
+| background | the colour behind the tree |
+| **sun** | |
+| angle | where the sun is round the tree |
+| height | how high in the sky it is |
+| intensity, color | how bright it is, and its colour, which tints the bands |
+| **hemisphere** | |
+| intensity | how bright the sky-and-ground light is |
+| sky color, ground color | its colour from above and from below |
+| **shadows** | |
+| color | the shadows' colour, on the floor, the grass and the tree |
+| darkness | how dark they are |
+
+</details>
+
+<details>
+<summary><b>Export</b>: how each export is made</summary>
+
+| control | what it does |
+| --- | --- |
+| **texture** | |
+| size | the image's width and height: 1024, 2048 or 4096 pixels |
+| transparent (RGBA) | a clear background instead of the theme's |
+| **sprite sheet** | |
+| views | how many views round the tree: 4, 8 or 16 |
+| frame size | each view's width and height: 128, 256 or 512 pixels |
+| elevation | how far above level the views look from, in degrees |
+| **impostor** | |
+| views a side | 6, 8 or 12 views a side of the atlas |
+| atlas size | the atlas's width and height, from 512 to 8192 pixels |
+| each view, on the GPU | read-outs: how many pixels each view gets, and how much GPU memory the atlas takes with its mipmaps |
+
+</details>
 
 ## Files
 

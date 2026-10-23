@@ -805,7 +805,12 @@ speciesSetting(
   breeze.add(wind.strength, "value", 0, 1).name("strength"),
 );
 breeze.add(wind.speed, "value", 0, 3).name("speed");
-breeze.add(wind.frequency, "value", 0.05, 1).name("gust size");
+// The gusts' size in metres, the noise's frequency turned over, so a higher
+// slider gives bigger gusts
+breeze
+  .add({ size: 1 / wind.frequency.value }, "size", 1, 20)
+  .name("gust size")
+  .onChange((size) => (wind.frequency.value = 1 / size));
 speciesSetting(
   "flutter",
   breeze.add(wind.flutter, "value", 0, 1).name("leaf flutter"),

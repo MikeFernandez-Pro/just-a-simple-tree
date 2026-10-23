@@ -6,7 +6,7 @@ import { attribute, cos, float, mx_noise_float, mx_noise_vec3, sin, time, unifor
 export const wind = {
   strength: uniform(0.22), // how far the tree top sways, in metres
   speed: uniform(0.83), // how fast gusts travel through the tree
-  frequency: uniform(0.05), // how small the gusts are: higher, more of them
+  frequency: uniform(0.05), // 1 / the gusts' size in metres: higher, smaller gusts and more of them
   direction: uniform(-Math.PI), // where the wind blows towards, round the trunk
   flutter: uniform(0.25), // how far each card rocks, in radians
   height: uniform(5), // the tree's height, so the sway grows towards the top
