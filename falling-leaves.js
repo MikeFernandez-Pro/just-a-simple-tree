@@ -28,7 +28,7 @@ import {
   vec3,
   vec4,
 } from 'three/tsl'
-import { atlasUV } from './foliage.js'
+import { atlasUV, fallingTurned, shedding } from './foliage.js'
 import { LUMA, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { blowing, downwind, wind } from './wind.js'
@@ -42,7 +42,9 @@ import { holographic } from './hologram.js'
 // drifts downwind, lands on the floor, keeps sliding downwind as it settles
 // flat, then shrinks away and starts again. A shake knocks a batch more off:
 // the tree is hit from above, so they drop straight down at first, and the
-// wind only takes them once they've slowed.
+// wind only takes them once they've slowed. The leaves' age sets how many
+// fall: none as they unfold, more as the tree drops them, none from a bare
+// tree, and how many fall in the turned colours.
 
 const MAX_LEAVES = 4000
 const LOOSE = 600 // leaves a shake knocks off the tree at once, on top of the amount
@@ -60,7 +62,7 @@ const SATURATION = 1.25 // how much more vivid than the foliage they fall from
 // 0 high up, rising smoothly to 1 at the floor
 const levelling = (height) => float(1).sub(height.sub(FLOOR).div(LANDING).clamp(0, 1)).smoothstep(0, 1)
 
-export function createFallingLeaves({ colors, imageColors, crownCenter, crownSize }) {
+export function createFallingLeaves({ colors, turnedColors, imageColors, age, crownCenter, crownSize }) {
   const uniforms = {
     lifetime: uniform(14), // seconds from leaving the tree to vanishing
     fallSpeed: uniform(0.42), // metres per second, before the wind
@@ -74,21 +76,22 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
 
   // Whether leaves may leave the tree at all: not while a new tree grows
   const spawning = () => u.spawning.greaterThan(0.5)
-  // Whether a leaf may leave the tree now: the first amount of them, while
-  // spawning. Every leaf is drawn, the others hidden, so changing the amount
-  // never shows leaves mid-air: they join or stop as their lives end
-  const free = () => spawning().and(instanceIndex.toFloat().lessThan(u.amount))
+  // Whether a leaf may leave the tree now: the first amount of them, as
+  // many more or fewer as the leaves' age sheds, while spawning. Every leaf
+  // is drawn, the others hidden, so changing the amount never shows leaves
+  // mid-air: they join or stop as their lives end
+  const amount = u.amount.mul(shedding(age))
+  const free = () => spawning().and(instanceIndex.toFloat().lessThan(amount))
 
-  // Per leaf: where it is and how far through its life, and how settled it
-  // is on the floor (0 in the air, 1 lying flat)
+  // Per leaf: where it is, and the rest of it packed in one vec4, as WebGL2
+  // runs a compute shader through transform feedback, which may write as
+  // few as four buffers: x how far through its life, y how settled it is on
+  // the floor (0 in the air, 1 lying flat), z 1 as a shake knocks it off,
+  // falling to 0 as the wind takes it, and w the leaf texture it left the
+  // tree in, counted as u.wearing, so a leaf already off the tree keeps it
+  // when the texture changes
   const positions = instancedArray(MAX_LEAVES, 'vec3')
-  const progresses = instancedArray(MAX_LEAVES, 'float')
-  const settled = instancedArray(MAX_LEAVES, 'float')
-  // 1 as a shake knocks a leaf off, falling to 0 as the wind takes it
-  const knocked = instancedArray(MAX_LEAVES, 'float')
-  // The leaf texture it left the tree in, counted as u.wearing: a leaf
-  // already off the tree keeps it when the texture changes
-  const worn = instancedArray(MAX_LEAVES, 'float')
+  const states = instancedArray(MAX_LEAVES, 'vec4')
 
   // A random point inside the crown, new each time it's asked for
   const spawn = (seed) => {
@@ -104,10 +107,11 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
 
   // A leaf leaving the tree: from a new point in the crown, in the air
   const leave = () => {
+    const state = states.element(instanceIndex)
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7).add(tick)))
-    settled.element(instanceIndex).assign(0)
-    knocked.element(instanceIndex).assign(0)
-    worn.element(instanceIndex).assign(u.wearing)
+    state.y.assign(0)
+    state.z.assign(0)
+    state.w.assign(u.wearing)
   }
 
   // Start every free leaf somewhere in the crown, at a random point of its
@@ -115,17 +119,15 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   const init = Fn(() => {
     const progress = hash(instanceIndex.mul(3))
     positions.element(instanceIndex).assign(spawn(instanceIndex.mul(7)))
-    progresses.element(instanceIndex).assign(select(free(), progress, progress.negate()))
-    settled.element(instanceIndex).assign(0)
-    knocked.element(instanceIndex).assign(0)
-    worn.element(instanceIndex).assign(u.wearing)
+    states.element(instanceIndex).assign(vec4(select(free(), progress, progress.negate()), 0, 0, u.wearing))
   })().compute(MAX_LEAVES)
 
   const step = Fn(() => {
     const position = positions.element(instanceIndex)
-    const progress = progresses.element(instanceIndex)
-    const flat = settled.element(instanceIndex)
-    const knock = knocked.element(instanceIndex)
+    const state = states.element(instanceIndex)
+    const progress = state.x
+    const flat = state.y
+    const knock = state.z
     const dt = deltaTime.min(0.05)
 
     // Life: when it's over, start again from a new point in the crown. A leaf
@@ -182,9 +184,9 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
     const pool = float(MAX_LEAVES).sub(u.amount).max(1)
     const place = index.sub(u.amount).sub(u.looseFrom).add(pool).mod(pool)
     If(spawning().and(index.greaterThanEqual(u.amount)).and(place.lessThan(LOOSE)), () => {
-      progresses.element(instanceIndex).assign(hash(instanceIndex.add(tick).add(101)).mul(0.1))
+      states.element(instanceIndex).x.assign(hash(instanceIndex.add(tick).add(101)).mul(0.1))
       leave()
-      knocked.element(instanceIndex).assign(1)
+      states.element(instanceIndex).z.assign(1)
     })
   })().compute(MAX_LEAVES)
 
@@ -194,7 +196,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
 
   material.positionNode = Fn(() => {
     const position = positions.element(instanceIndex)
-    const progress = progresses.element(instanceIndex)
+    const progress = states.element(instanceIndex).x
     const seed = hash(instanceIndex)
 
     // Grows in as it leaves the tree, shrinks away at the end
@@ -220,7 +222,7 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   const leafColors = texture(new THREE.Texture(), atlasUV())
   const oldTexture = texture(new THREE.Texture(), atlasUV())
   const oldColors = texture(new THREE.Texture(), atlasUV())
-  const older = varying(select(worn.element(instanceIndex).lessThan(u.wearing), float(1), float(0)))
+  const older = varying(select(states.element(instanceIndex).w.lessThan(u.wearing), float(1), float(0)))
   const opacity = mix(leafTexture.r, oldTexture.r, older)
   material.opacityNode = opacity
   material.alphaTest = 0.5
@@ -230,12 +232,15 @@ export function createFallingLeaves({ colors, imageColors, crownCenter, crownSiz
   // Colour: the foliage's mid colour, each leaf its own shade of it, from a
   // little towards the shadow colour to a little towards the light one, and
   // a touch more saturated, so they stand out against the tree
-  const [shadow, mid, light] = colors.map((color) => swept(color))
   const shade = hash(instanceIndex.add(313))
-  const themed = saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
+  const shaded = ([shadow, mid, light]) => saturation(mix(mix(mid, shadow, 0.4), mix(mid, light, 0.4), shade), SATURATION)
+  const bands = colors.map((color) => swept(color))
+  const themed = shaded(bands)
   // Or, on a tree in a dropped image's colours, the image's, shaded alike
-  const own = mix(leafColors.rgb, oldColors.rgb, older).mul(dot(themed, LUMA).div(dot(mid, LUMA).max(1e-4)))
-  const color = mix(themed, own, imageColors)
+  const own = mix(leafColors.rgb, oldColors.rgb, older).mul(dot(themed, LUMA).div(dot(bands[1], LUMA).max(1e-4)))
+  // Or the turned colours, for as many as the age turns
+  const turned = hash(instanceIndex.add(577)).lessThan(fallingTurned(age))
+  const color = select(turned, shaded(turnedColors.map((color) => swept(color))), mix(themed, own, imageColors))
   material.outputNode = vec4(holographic(toneMapped(color), normalWorld), output.a)
 
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)

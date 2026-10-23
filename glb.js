@@ -8,7 +8,8 @@ import { encodeTexture, textureWriter } from './textures.js'
 // The tree as a GLB ready for a plain MeshStandardMaterial anywhere: the
 // wood, and the leaf cards as they stand with no wind, lit by the clumps'
 // normals, cut out by the leaf texture, darkened by the gradient and AO in
-// their vertex colours. Each material keeps its cel ramp in its extras
+// their vertex colours, split by their age into leaves, young leaves and
+// turned leaves. Each material keeps its cel ramp in its extras
 // (userData once loaded in three.js), for the snippet in the README to put
 // the look back. Leaves in a dropped image's colours carry the image
 // instead, and no ramp. Or, in place of the tree, its impostor: one quad
@@ -45,7 +46,7 @@ function cutout(leaves, colors) {
 
 // tree: { wood, leaves }, the wood's geometry and the leaves baked; or
 // impostor: { atlas, frames, crops, center, radius }
-export async function exportGlb({ tree, impostor, foliage, barkColors, species, seed, name }) {
+export async function exportGlb({ tree, impostor, barkColors, species, seed, name }) {
   const scene = new THREE.Scene()
   scene.name = 'Just a simple tree'
   scene.userData = { species, seed }
@@ -53,29 +54,29 @@ export async function exportGlb({ tree, impostor, foliage, barkColors, species, 
   // One material each for the wood and the leaves
   const bark = new THREE.MeshStandardMaterial({ name: 'bark', color: barkColors[1].value, roughness: 1, metalness: 0 })
   bark.userData.celRamp = BARK_STOPS.map((at, i) => [at, hex(barkColors[i].value)])
-  let leafMaterial
-  function leavesOf(baked) {
-    if (leafMaterial) return leafMaterial
+  // A material for each part of the leaves, by their age: the leaves, young
+  // leaves and turned leaves, each with its own ramp. Parts cut out the
+  // same way share one texture
+  const cutouts = new Map()
+  function leavesOf({ name, colors, own }, { shadeScale, texture }) {
     // A plain viewer shows them in the ramp's mid colour times the vertex
     // colours; those were divided by shadeScale, so it's multiplied back into
     // the colour, as far as a colour can go. A dropped image's colours stand
     // as they are
-    const { shadeScale, texture, colors: own } = baked
-    const colors = foliage.uniforms.colors.map((uniform) => uniform.value)
     const color = own ? new THREE.Color(1, 1, 1) : colors[1].clone().multiplyScalar(shadeScale)
-    leafMaterial = new THREE.MeshStandardMaterial({
-      name: 'leaves',
+    const material = new THREE.MeshStandardMaterial({
+      name,
       color: new THREE.Color(Math.min(color.r, 1), Math.min(color.g, 1), Math.min(color.b, 1)),
-      map: cutout(texture.image, own?.image),
+      map: cutouts.get(own) ?? cutouts.set(own, cutout(texture.image, own?.image)).get(own),
       alphaTest: 0.5,
       side: THREE.DoubleSide,
       vertexColors: true,
       roughness: 1,
       metalness: 0,
     })
-    if (!own) leafMaterial.userData.celRamp = LEAF_STOPS.map((at, i) => [at, hex(colors[i])])
-    leafMaterial.userData.shadeScale = shadeScale
-    return leafMaterial
+    if (!own) material.userData.celRamp = LEAF_STOPS.map((at, i) => [at, hex(colors[i])])
+    material.userData.shadeScale = shadeScale
+    return material
   }
 
   // The tree's meshes. A bush has no wood, and a tree may have no leaves
@@ -90,9 +91,9 @@ export async function exportGlb({ tree, impostor, foliage, barkColors, species, 
       mesh.name = 'wood'
       found.push(mesh)
     }
-    if (leaves.geometry.index.count > 0) {
-      const mesh = new THREE.Mesh(leaves.geometry, leavesOf(leaves))
-      mesh.name = 'leaves'
+    for (const part of leaves.parts) {
+      const mesh = new THREE.Mesh(part.geometry, leavesOf(part, leaves))
+      mesh.name = part.name
       found.push(mesh)
     }
     return found

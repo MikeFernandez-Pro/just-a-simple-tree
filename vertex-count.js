@@ -18,12 +18,12 @@ export function createVertexCount() {
     .vertex-count b { color: ${INK}; text-align: right; font-variant-numeric: tabular-nums }
     .vertex-count hr { grid-column: 1 / -1; width: 100%; margin: 4px 0; border: 0; border-top: 2px solid ${LINE} }
     .vertex-count .total { color: ${INK}; font-weight: 700 }
-    @media (max-width: 760px), (max-height: 500px) {
+    @media (max-width: 900px), (max-height: 500px) {
       .vertex-count { left: 50%; bottom: 96px; translate: -50% 0; padding: 6px 10px; font-size: 11px;
         border-width: 2.5px; box-shadow: 3px 3px 0 var(--button-shadow) }
     }
     @media (max-width: 480px), (max-height: 500px) {
-      .vertex-count { bottom: 78px }
+      .vertex-count { bottom: 100px }
     }
   `
   document.head.appendChild(style)

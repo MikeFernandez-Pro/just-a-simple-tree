@@ -1,12 +1,7 @@
 import * as THREE from 'three/webgpu'
 import {
-  acesFilmicToneMapping,
-  agxToneMapping,
-  cineonToneMapping,
   float,
-  linearToneMapping,
   neutralToneMapping,
-  reinhardToneMapping,
   dot,
   Fn,
   mix,
@@ -81,36 +76,11 @@ export function celShade(stops) {
   return ramp(value, stops).mul(tint)
 }
 
-// Tone mapping, Neutral to start, done in the materials of the tree and
-// leaves rather than over the whole frame, so the background and the
-// floor's shadow keep exactly the colours picked
-export const exposure = uniform(1)
-export const TONE_MAPPINGS = {
-  none: THREE.NoToneMapping,
-  linear: THREE.LinearToneMapping,
-  reinhard: THREE.ReinhardToneMapping,
-  cineon: THREE.CineonToneMapping,
-  'aces filmic': THREE.ACESFilmicToneMapping,
-  agx: THREE.AgXToneMapping,
-  neutral: THREE.NeutralToneMapping,
-}
-// The type is a uniform the shader picks by, so switching is instant and
-// nothing recompiles. (A ToneMappingNode's type is baked into the shader,
-// and changing it after the first build doesn't reach the cached one)
-export const toneMappingType = uniform(THREE.NeutralToneMapping)
-const CURVES = [
-  [THREE.LinearToneMapping, linearToneMapping],
-  [THREE.ReinhardToneMapping, reinhardToneMapping],
-  [THREE.CineonToneMapping, cineonToneMapping],
-  [THREE.ACESFilmicToneMapping, acesFilmicToneMapping],
-  [THREE.AgXToneMapping, agxToneMapping],
-  [THREE.NeutralToneMapping, neutralToneMapping],
-]
-export function toneMapped(color) {
-  let result = color
-  for (const [type, curve] of CURVES) result = mix(result, curve(color, exposure), float(toneMappingType.equal(type)))
-  return result
-}
+// Neutral tone mapping, done in the materials of the tree and leaves rather
+// than over the whole frame, so the background and the floor's shadow keep
+// exactly the colours picked
+const EXPOSURE = 1
+export const toneMapped = (color) => neutralToneMapping(color, float(EXPOSURE))
 
 // A linear colour as a uniform, so the panel can change it
 export function linear(r, g, b) {

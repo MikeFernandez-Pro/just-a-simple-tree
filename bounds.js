@@ -4,11 +4,13 @@ import * as THREE from 'three/webgpu'
 // flat as x, y, z: what an impostor's views are cropped to. Tighter than
 // bounds' balls, which round each card's leaves out to its full width
 export function vertices(wood, foliage) {
-  const bark = wood.attributes.position.array
-  const leaves = foliage.bake().geometry.attributes.position.array
-  const all = new Float32Array(bark.length + leaves.length)
-  all.set(bark)
-  all.set(leaves, bark.length)
+  const arrays = [wood.attributes.position.array, ...foliage.bake().parts.map(({ geometry }) => geometry.attributes.position.array)]
+  const all = new Float32Array(arrays.reduce((sum, array) => sum + array.length, 0))
+  let at = 0
+  for (const array of arrays) {
+    all.set(array, at)
+    at += array.length
+  }
   return all
 }
 

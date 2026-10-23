@@ -1,5 +1,8 @@
 # Just a simple tree
 
+**[Open it in your browser →](https://mikefernandez-pro.github.io/just-a-simple-tree/)**
+Nothing to install.
+
 <img src="docs/tree.gif" width="100%" alt="An oak in blossom, a willow in autumn, a pine in frost, a bush at night and a cypress in spring, each folding away as the next grows in">
 
 A procedural anime-style tree for three.js, exported as a `.glb`, a
@@ -9,19 +12,21 @@ generated from a seed. Nothing is modelled or loaded, and the leaf textures
 are painted in code at startup, unless you drop an image of your own on the
 leaves.
 
-Live at <https://mikefernandez-pro.github.io/just-a-simple-tree/>, built
-from `main` by GitHub Actions on every push.
-
 ## Quick start
+
+Open <https://mikefernandez-pro.github.io/just-a-simple-tree/>, pick a
+species and a theme, tune the tree in the panel, then click **export** and
+pick what to save. The files work in any engine or glTF viewer, not just
+three.js. The app renders with WebGPU and falls back to WebGL2.
+
+To run it locally or change the generator:
 
 ```sh
 pnpm install
 pnpm dev
 ```
 
-Pick a species and a theme, tune the tree in the panel, then click
-**export** and pick what to save. The app renders with WebGPU and falls
-back to WebGL2.
+The live page is built from `main` by GitHub Actions on every push.
 
 ## Using the export
 
@@ -30,6 +35,13 @@ images; hover one to see what it's for. The panel's **Export** section sets
 how each is made, and **export settings…** at the bottom of the menu opens
 it. Every image is a PNG, the GLBs' textures included: see
 [GLB textures](#glb-textures).
+
+**material**, the button under the panel's at the top right, opens the
+material code that gives the tree's GLB its look back in three.js,
+`celShade`, in a little editor window, with a tab for `WebGPURenderer` and
+one for `WebGLRenderer`. The code scrolls and has a **copy** button, with
+how to apply it underneath. It's the code in [Cel shading](#cel-shading),
+read out of this README, without its comments.
 
 - **tree** (`.glb`): the tree as you see it, as meshes, below.
 - **impostor** (`.glb`): one quad and an atlas of views from all over the sky
@@ -46,13 +58,18 @@ it. Every image is a PNG, the GLBs' textures included: see
 The textures, sprites and impostor are drawn with the tree still and fully
 grown, lit by the sun as it is when you export.
 
-The tree's GLB holds two meshes with a plain `MeshStandardMaterial`, so it opens in
+The tree's GLB holds its meshes with a plain `MeshStandardMaterial`, so it opens in
 any glTF viewer or engine:
 
 - **`wood`**: the branches, with smooth normals. A bush has none.
 - **`leaves`**: alpha-masked, double-sided cards with their clumps' normals,
   so each clump shades as one soft volume. The gradient and AO are baked
   into the vertex colours for the sun at export time.
+- **`young leaves`** and **`turned leaves`**: the cards still unfolding or
+  already turned at the leaves' **age**, each mesh with its own ramp, in
+  the pale or turned colours. They're only there when the age has some.
+  Cards that have dropped aren't exported, and the rest are exported at
+  their size for the age.
 
 The tree is exported without wind, with its foot at the origin.
 
@@ -60,11 +77,12 @@ The tree is exported without wind, with its foot at the origin.
 
 Each material stores its cel ramp in its glTF `extras`, so after loading
 it's in `material.userData.celRamp`: `[threshold, colour]` pairs, from
-shadow to light. `celShade` rebuilds the app's look from it:
+shadow to light. `celShade` takes a material and gives back a new one with
+the app's look built from it, the one given left as it was:
 
 ```js
 gltf.scene.traverse((object) => {
-  if (object.isMesh) celShade(object)
+  if (object.isMesh) object.material = celShade(object.material)
 })
 ```
 
@@ -92,15 +110,21 @@ scene.add(sun, new THREE.HemisphereLight('#bfd8ff', '#6b5a45', 1))
 ```js
 import * as THREE from 'three'
 
-// The cel look of Just a simple tree, on a mesh from its GLB, for
-// WebGLRenderer: the light picks a colour from the ramp in the material's
-// extras, tinted by the light's colour, then the vertex colours shade it
-export function celShade(mesh) {
-  const material = mesh.material
-  const ramp = material.userData.celRamp
-  if (!ramp) return
+const ALBEDO = 0.8 // the grey the ramp's band edges expect, lit
+const LUMA = [0.2126, 0.7152, 0.0722] // the light's brightness from its red, green and blue
+const TINT_FADE = 0.02 // the brightness over which the light's tint fades in from black
+const EPSILON = 1e-4 // keeps the tint from dividing by nothing in the dark
+
+// The cel look of Just a simple tree, for WebGLRenderer: a copy of a
+// material from its GLB, where the light picks a colour from the ramp in
+// the material's extras, tinted by the light's colour, then the vertex
+// colours shade it. A material without a ramp comes back as it is
+export function celShade(oldMaterial) {
+  const ramp = oldMaterial.userData.celRamp
+  if (!ramp) return oldMaterial
   const count = ramp.length
-  material.color.setRGB(0.8, 0.8, 0.8) // the ramp's band edges expect this albedo
+  const material = oldMaterial.clone()
+  material.color.setRGB(ALBEDO, ALBEDO, ALBEDO)
   material.onBeforeCompile = (shader) => {
     shader.uniforms.rampAt = { value: ramp.map(([at]) => at) }
     shader.uniforms.rampColor = { value: ramp.map(([, hex]) => new THREE.Color(hex)) }
@@ -118,10 +142,10 @@ uniform float shadeScale;`,
       .replace(
         '#include <opaque_fragment>',
         `{
-  float value = dot(outgoingLight, vec3(0.2126, 0.7152, 0.0722));
+  float value = dot(outgoingLight, vec3(${LUMA.join(', ')}));
   vec3 band = rampColor[0];
   for (int i = 1; i < ${count}; i++) band = mix(band, rampColor[i], step(rampAt[i], value));
-  outgoingLight = band * mix(vec3(1.0), outgoingLight / max(value, 1e-4), smoothstep(0.0, 0.02, value));
+  outgoingLight = band * mix(vec3(1.0), outgoingLight / max(value, ${EPSILON}), smoothstep(0.0, ${TINT_FADE}, value));
   #ifdef USE_COLOR
     outgoingLight *= vColor.rgb * shadeScale;
   #endif
@@ -129,7 +153,7 @@ uniform float shadeScale;`,
 #include <opaque_fragment>`,
       )
   }
-  material.needsUpdate = true
+  return material
 }
 ```
 
@@ -142,36 +166,42 @@ uniform float shadeScale;`,
 import * as THREE from 'three/webgpu'
 import { attribute, color, dot, float, mix, output, smoothstep, step, vec3, vec4 } from 'three/tsl'
 
-// The cel look of Just a simple tree, on a mesh from its GLB, for
-// WebGPURenderer: the light picks a colour from the ramp in the material's
-// extras, tinted by the light's colour, then the vertex colours shade it
-export function celShade(mesh) {
-  const old = mesh.material
-  const ramp = old.userData.celRamp
-  if (!ramp) return
+const ALBEDO = 0.8 // the grey the ramp's band edges expect, lit
+const LUMA = [0.2126, 0.7152, 0.0722] // the light's brightness from its red, green and blue
+const TINT_FADE = 0.02 // the brightness over which the light's tint fades in from black
+const EPSILON = 1e-4 // keeps the tint from dividing by nothing in the dark
+
+// The cel look of Just a simple tree, for WebGPURenderer: a new material
+// for one from its GLB, where the light picks a colour from the ramp in the
+// material's extras, tinted by the light's colour, then the vertex colours
+// shade it. A material without a ramp comes back as it is
+export function celShade(oldMaterial) {
+  const ramp = oldMaterial.userData.celRamp
+  if (!ramp) return oldMaterial
   const material = new THREE.MeshLambertNodeMaterial({
-    color: new THREE.Color().setRGB(0.8, 0.8, 0.8), // the ramp's band edges expect this albedo
-    map: old.map,
-    alphaTest: old.alphaTest,
-    side: old.side,
+    name: oldMaterial.name,
+    color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO),
+    map: oldMaterial.map,
+    alphaTest: oldMaterial.alphaTest,
+    side: oldMaterial.side,
   })
-  const value = dot(output.rgb, vec3(0.2126, 0.7152, 0.0722))
+  const value = dot(output.rgb, vec3(...LUMA))
   let band = color(ramp[0][1])
   for (const [at, hex] of ramp.slice(1)) band = mix(band, color(hex), step(at, value))
-  const tint = mix(vec3(1), output.rgb.div(value.max(1e-4)), smoothstep(0, 0.02, value))
-  const shade = mesh.geometry.attributes.color
-    ? attribute('color', 'vec3').mul(old.userData.shadeScale ?? 1)
+  const tint = mix(vec3(1), output.rgb.div(value.max(EPSILON)), smoothstep(0, TINT_FADE, value))
+  const shade = oldMaterial.vertexColors
+    ? attribute('color', 'vec3').mul(oldMaterial.userData.shadeScale ?? 1)
     : float(1)
   material.outputNode = vec4(band.mul(tint).mul(shade), output.a)
-  mesh.material = material
+  return material
 }
 ```
 
 </details>
 
 Leaves wearing a dropped image in its own colours have that image as their
-`map`, cut out by its leaves, and no `celRamp`, so `celShade` leaves them as
-they are.
+`map`, cut out by its leaves, and no `celRamp`, so `celShade` gives their
+material back as it is.
 
 ### Recolouring
 
@@ -422,9 +452,29 @@ tree's foot is on the same pixel in each, centred near the bottom.
   and the hologram in the old ones above. The image is kept in the browser, so a link asking for it
   finds it again on the same machine. They borrow the clump's normals instead of their own, so a clump
   shades like one soft ball, and go through a hard-edged cel colour ramp.
+  **evenness**, in the clumps folder, takes every clump towards one size,
+  keeping their total leaf area: at 0 they're the sizes they grew, at 1
+  they're all the same.
+  **variation**, in the colors folder, makes each clump a little warmer or
+  cooler, lighter or darker than its neighbours, so a dense crown doesn't
+  run together into one blob. It's multiplied in after the cel ramp, so the
+  bands stay where they are, and it goes into the GLB's vertex colours.
+- **The leaves' age**, **age** at the top of the leaves' section, runs
+  them through a year. At 0 they've only just unfolded: small, sparse and
+  pale. By 0.25 they're full grown in the theme's colours, as they are when
+  the page opens, at 0.35. From 0.45 they turn to the theme's turned
+  colours, then drop, until at 1 the tree is bare. Each card goes on its
+  own beat: the most open ones first, a clump's cards roughly together, so
+  autumn creeps over the crown from its outside. More leaves fall while the
+  tree drops them, in the turned colours, none fall from a bare tree, and
+  none while it's still unfolding.
 - **Ambient occlusion** is worked out per card on the CPU, treating each
   clump as a leafy volume, so the colours depend on the sun and never on the
-  camera.
+  camera. It also leaves out the cards nobody would see: one deep inside a
+  neighbouring clump, and so dark that little light reaches it, is hidden
+  from nearly every side. That saves about a third of the cypress's cards,
+  and a few percent of the other species'. **keep buried cards**, a debug
+  view in the clumps folder, puts them back to compare.
 - **Lights**: a sun with shadows and a sky-and-ground hemisphere light; their
   colours tint the bands. The floor only draws the shadow, so it blends into
   any background colour.
@@ -447,7 +497,8 @@ tree's foot is on the same pixel in each, centred near the bottom.
   new species' leaves only come with the new tree.
 - **Themes**: the round buttons along the top, or the left and right arrow
   keys, switch between blossom, spring, autumn, frost and night. Each sets
-  the leaves, the wood, the grass, the background and the shadows. The new theme sweeps over the
+  the leaves and what they turn to, the wood, the grass, the background and
+  the shadows. The new theme sweeps over the
   screen from the bottom left to the top right behind a ragged Perlin-noise
   front with a bright edge. When the front reaches the tree it hits it: the
   tree squashes and bounces back, the camera is knocked and shakes, and a
@@ -470,9 +521,11 @@ debug views: the tree (theme, species, its shape, trunk and mesh with the
 wireframe; the shape shows only the species' own sliders, and the bush,
 which has no wood, hides the wood's sliders, wireframe and colours, and
 drops no leaves, so it hides falling leaves too),
-the leaves (clumps, cards, shading and normals), wind, the grass (its
+the leaves (their age, clumps, with a view of them cel shaded in the
+leaves' colours and the cards out of the way, cards, shading, and colours,
+the turned ones included), wind, the grass (its
 size, blades, wind strength, shading and colours), falling leaves, and
-the lights (background, sun, sky, shadows, tone mapping), and the export
+the lights (background, sun, sky, shadows), and the export
 (the texture's size and transparency, the sprite sheet's views, and the impostor's).
 Each section and folder has its own reset, the filter box finds a setting by
 name, and **copy config** copies every value as JSON.
@@ -487,6 +540,8 @@ sets them all again.
 | --- | --- |
 | `main.js` | the scene, the panel and the render loop |
 | `bar.js` | the buttons at the bottom: new tree, and export with its menu |
+| `code-view.js` | the material button and its code window, the snippets read out of this README |
+| `repo-link.js` | the GitHub sticker in the bottom right corner |
 | `image-drop.js` | dropping or picking an image for the leaves, and keeping it |
 | `hologram.js` | the tree as a hologram while an image is dragged over the page, and the scan that puts the new leaves on |
 | `themes.js` | the colour themes and the buttons along the top picking them |
@@ -504,7 +559,7 @@ sets them all again.
 | `willow.js` | the willow: its limbs, hanging strands and leaf clumps, its icon, sliders and settings |
 | `bush.js` | the bush: its leaf clumps, its icon, sliders and settings |
 | `foliage.js` | the leaf cards, their shading, the painted textures and a dropped image's |
-| `shading.js` | lights, shadows, cel ramps, tone mapping, wood and floor |
+| `shading.js` | lights, shadows, cel ramps, Neutral tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |
 | `wind.js` | the sway and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |

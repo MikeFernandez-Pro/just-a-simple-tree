@@ -31,6 +31,8 @@ import { createFallingLeaves } from "./falling-leaves.js";
 import { createGrass } from "./grass.js";
 import { createRegenerate } from "./regenerate.js";
 import { createBar } from "./bar.js";
+import { createCodeView } from "./code-view.js";
+import { createRepoLink } from "./repo-link.js";
 import { exportGlb } from "./glb.js";
 import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
 import { bounds, vertices } from "./bounds.js";
@@ -43,9 +45,6 @@ import { scanUp, showHologram, updateHologram } from "./hologram.js";
 import {
   barkColors,
   barkMaterial,
-  exposure,
-  toneMappingType,
-  TONE_MAPPINGS,
   groundMaterial,
   hemisphere,
   shadowColor,
@@ -141,14 +140,15 @@ const params = {
   variety: 1, // how far each seed's own character takes its tree from its species' average
   cardsPerClump: 35,
   clumpSize: 1, // scales every leaf clump, and its cards with it
+  clumpEvenness: 0, // 0 leaves the clumps the sizes they grew, 1 makes them all one size
   aoDistance: 2.5, // the tutorial's AO node distance
   leafTexture: "round cluster",
   leafColors: "theme", // or "image": a dropped image's own colours
   showClumps: false,
+  keepBuried: false, // keeps the cards buried deep in a neighbouring clump, to compare
   wireframe: false,
   leaves: true,
   showTexture: true,
-  normals: "transferred",
   showNormals: false,
   sunAngle: 1.07840734641021,
   sunHeight: 0.49,
@@ -176,10 +176,13 @@ scene.add(wireframe);
 const foliage = createFoliage();
 scene.add(foliage.mesh, foliage.clumps);
 
-// Leaves falling from the crown, in the foliage's colours
+// Leaves falling from the crown, in the foliage's colours, as many as its
+// age sheds
 const falling = createFallingLeaves({
   colors: foliage.uniforms.colors,
+  turnedColors: foliage.uniforms.turned,
   imageColors: foliage.uniforms.imageColors,
+  age: foliage.uniforms.age,
   crownCenter: foliage.uniforms.crownCenter,
   crownSize: foliage.uniforms.crownSize,
 });
@@ -585,7 +588,6 @@ const EXPORTS = [
     run: async () =>
       exportGlb({
         tree: { wood: tree.geometry, leaves: foliage.bake() },
-        foliage,
         barkColors,
         species: params.species,
         seed: params.seed,
@@ -631,7 +633,6 @@ const EXPORTS = [
           exportParams.impostorFrames,
           exportParams.impostorAtlas,
         ),
-        foliage,
         barkColors,
         species: params.species,
         seed: params.seed,
@@ -639,6 +640,10 @@ const EXPORTS = [
       }),
   },
 ];
+// The material code a GLB needs to look as it did here, from its button
+// under the Inspector's, and the way to the repo
+const codeView = createCodeView();
+createRepoLink();
 const bar = createBar({
   onNewTree: newTree,
   exports: EXPORTS,
@@ -650,7 +655,8 @@ const bar = createBar({
 // as theirs run down the left side, round from either end, and H hides the
 // panel. Each goes through
 // the panel's control, as a click does. Not while a field in the panel has
-// them, nor while the export menu is open, its choices taking the arrows.
+// them, nor while the export menu is open, its choices taking the arrows,
+// nor while the material code is open, its keys scrolling the code.
 // Held down, an arrow steps once
 const KEY_STEPS = {
   ArrowLeft: ["theme", -1],
@@ -662,7 +668,7 @@ const stepped = (keys, current, by) =>
   keys[(keys.indexOf(current) + by + keys.length) % keys.length];
 addEventListener("keydown", (e) => {
   const field = e.target.closest?.("input, select, textarea");
-  if (field) return;
+  if (field || codeView.isOpen()) return;
   if (e.code === "Space") {
     e.preventDefault();
     bar.newTree();
@@ -688,8 +694,16 @@ addEventListener("keydown", (e) => {
 });
 
 const leafSection = renderer.inspector.createParameters("Leaves");
+// The leaves' age: unfolding small and pale, summer, turning to the turned
+// colours, then dropping until the tree is bare. Dropped cards don't export
+leafSection
+  .add(foliage.uniforms.age, "value", 0, 1)
+  .name("age")
+  .onChange(countVertices);
 // The clumps the cards are scattered over, one on each free branch tip:
-// clump size grows them all, and bigger clumps get more cards
+// clump size grows them all, and bigger clumps get more cards. Evenness
+// takes them all towards one size, keeping their total area, without
+// regrowing the tree
 const clumps = leafSection.addFolder("clumps");
 speciesSetting(
   "clumpSize",
@@ -698,6 +712,10 @@ speciesSetting(
     .name("clump size")
     .onChange(requestRebuild),
 );
+clumps
+  .add(params, "clumpEvenness", 0, 1)
+  .name("evenness")
+  .onChange(requestLeaves);
 speciesSetting(
   "cardsPerClump",
   clumps
@@ -707,7 +725,12 @@ speciesSetting(
 );
 debugView(clumps.add(params, "showClumps"))
   .name("show clumps")
-  .onChange((v) => (foliage.clumps.visible = v));
+  .onChange(foliage.setClumpsShown);
+// Cards buried deep in a neighbouring clump are left out, hidden as they are
+// by its own; this keeps them, to see that the crown looks the same
+debugView(clumps.add(params, "keepBuried"))
+  .name("keep buried cards")
+  .onChange(requestLeaves);
 const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
@@ -755,19 +778,25 @@ leafShading
   .add(params, "aoDistance", 0.25, 6)
   .name("ao distance")
   .onChange(requestLeaves);
-debugView(
-  leafShading.add(params, "normals", ["transferred", "flat card"]),
-).onChange(
-  (v) => (foliage.uniforms.flatNormals.value = v === "flat card" ? 1 : 0),
-);
 debugView(leafShading.add(params, "showNormals"))
   .name("show normals")
   .onChange((v) => (foliage.uniforms.showNormals.value = v ? 1 : 0));
-const leafPickers = addRamp(
-  leafSection.addFolder("colors"),
-  foliage.uniforms.colors,
-  ["shadow", "mid", "light"],
-);
+const leafColorsFolder = leafSection.addFolder("colors");
+const leafPickers = addRamp(leafColorsFolder, foliage.uniforms.colors, [
+  "shadow",
+  "mid",
+  "light",
+]);
+const turnedPickers = addRamp(leafColorsFolder, foliage.uniforms.turned, [
+  "turned shadow",
+  "turned mid",
+  "turned light",
+]);
+// Each clump a little warmer or cooler, lighter or darker than the others,
+// so the crown doesn't run together into one blob
+leafColorsFolder
+  .add(foliage.uniforms.variation, "value", 0, 1)
+  .name("variation");
 
 const breeze = renderer.inspector.createParameters("Wind");
 breeze.add(wind.direction, "value", -Math.PI, Math.PI).name("direction");
@@ -842,13 +871,6 @@ const shadowColorPicker = shadowFolder
 const darknessControl = shadowFolder
   .add(shadowDarkness, "value", 0, 1)
   .name("darkness");
-// Tone mapping of the tree and leaves: its type, and its exposure
-const toneFolder = light.addFolder("tone mapping");
-toneFolder
-  .add({ type: "neutral" }, "type", Object.keys(TONE_MAPPINGS))
-  .name("type")
-  .onChange((name) => (toneMappingType.value = TONE_MAPPINGS[name]));
-toneFolder.add(exposure, "value", 0.1, 3).name("exposure");
 
 // How the export menu's choices are made, everything written as PNGs: the
 // texture's size and background; the sprite sheet's views, their size and
@@ -905,6 +927,7 @@ impostorAtlasControl.onChange(impostorNote.update);
 // its first theme
 const themeBindings = [
   ...leafPickers.map((picker, i) => [picker, (theme) => theme.leaves[i]]),
+  ...turnedPickers.map((picker, i) => [picker, (theme) => theme.turned[i]]),
   ...woodPickers.map((picker, i) => [picker, (theme) => theme.wood[i]]),
   ...grassPickers.map((picker, i) => [picker, (theme) => theme.grass[i]]),
   [backgroundPicker, (theme) => theme.background],

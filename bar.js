@@ -12,7 +12,7 @@ import { INK, LINE } from './stickers.js'
 // settings for them, where the file types are picked. It shows busy while it exports, as one export runs at
 // a time
 
-const MUTED = '#8a8692' // the note under new tree, and the menu's headings
+const MUTED = '#8a8692' // the notes under the buttons' words, and the menu's headings
 
 // Drawn in strokes, in the ink's colour, in a 24 × 24 box
 const ICONS = {
@@ -69,6 +69,7 @@ export function createBar({ onNewTree, exports, onSettings }) {
       .bar > button { gap: 10px; padding: 9px 16px 9px 13px; font-size: 14px; box-shadow: 4px 4px 0 var(--button-shadow) }
       .bar > button svg { width: 22px; height: 22px }
       .bar > button .note { font-size: 11px }
+      .bar > button .words { white-space: normal }
       .bar .menu { right: 50%; translate: 50% 0 }
     }
   `
@@ -122,7 +123,7 @@ export function createBar({ onNewTree, exports, onSettings }) {
   }
 
   // A new tree: its arrow starts a turn afresh each press, however soon
-  const regrow = sticker({ icon: 'regrow', wordings: ['new tree'], note: 'or press space' })
+  const regrow = sticker({ icon: 'regrow', wordings: ['new tree'], note: '(space)' })
   function newTree() {
     const arrow = regrow.button.querySelector('svg')
     arrow.classList.remove('turn')
@@ -138,7 +139,7 @@ export function createBar({ onNewTree, exports, onSettings }) {
 
   // Export: busy while it runs, then saved for a moment, unless it failed.
   // Another export may start while saved still shows, and its busy replaces it
-  const save = sticker({ icon: 'download', wordings: ['export', 'exporting…', 'saved'], after: 'caret' })
+  const save = sticker({ icon: 'download', wordings: ['export', 'exporting…', 'saved'], note: '(glb, png)', after: 'caret' })
   let exporting = false
   let runs = 0
   async function run(what) {
