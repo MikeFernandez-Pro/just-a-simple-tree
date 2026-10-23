@@ -1,5 +1,6 @@
 # Builds the page on every push to main and publishes it on GitHub Pages at
-# https://mikefernandez-pro.github.io/just-a-simple-tree/
+# https://justasimpletree.com/, the custom domain set in the repo's Pages
+# settings (a workflow's deploy ignores a CNAME file)
 name: pages
 
 on:
@@ -30,8 +31,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
-        env:
-          BASE_PATH: /just-a-simple-tree/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

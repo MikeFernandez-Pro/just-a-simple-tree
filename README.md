@@ -1,6 +1,6 @@
 # Just a simple tree
 
-**[Open it in your browser →](https://mikefernandez-pro.github.io/just-a-simple-tree/)**
+**[Open it in your browser →](https://justasimpletree.com/)**
 Nothing to install.
 
 <img src="docs/tree.gif" width="100%" alt="An oak in blossom, a willow in autumn, a pine in frost, a bush at night and a cypress in spring, each folding away as the next grows in">
@@ -14,7 +14,7 @@ leaves.
 
 ## Quick start
 
-Open <https://mikefernandez-pro.github.io/just-a-simple-tree/>, pick a
+Open <https://justasimpletree.com/>, pick a
 species and a theme, tune the tree in the panel, then click **export** and
 pick what to save. The files work in any engine or glTF viewer, not just
 three.js. The app renders with WebGPU and falls back to WebGL2.
@@ -26,7 +26,8 @@ pnpm install
 pnpm dev
 ```
 
-The live page is built from `main` by GitHub Actions on every push.
+The live page, at [justasimpletree.com](https://justasimpletree.com/), is built
+from `main` by GitHub Actions on every push.
 
 ## Using the export
 
