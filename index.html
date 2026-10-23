@@ -4,7 +4,52 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#ffe5f4" />
-    <title>Just a simple tree</title>
+    <title>Just a simple tree · a procedural anime tree for three.js</title>
+    <meta name="description" content="Grow a procedural, anime-style tree in your browser: oak, pine, cypress, weeping willow or bush, cel shaded and swaying in the wind. Tune it, then export it for three.js as a GLB, an impostor or a sprite sheet. Free, nothing to install." />
+    <link rel="canonical" href="https://justasimpletree.com/" />
+
+    <!-- The tab's icon, and the home screen's on iPhone and Android -->
+    <link rel="icon" href="/favicon.ico" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <meta name="apple-mobile-web-app-title" content="Simple tree" />
+
+    <!-- The card a shared link shows (Open Graph for most apps, Twitter's own
+         tags for X). Their addresses must be absolute -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Just a simple tree" />
+    <meta property="og:title" content="Just a simple tree" />
+    <meta property="og:description" content="A procedural, anime-style tree to grow in your browser and export for three.js." />
+    <meta property="og:url" content="https://justasimpletree.com/" />
+    <meta property="og:image" content="https://justasimpletree.com/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="A pink cel-shaded tree in blossom on a tuft of grass, beside the words just a simple tree" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Just a simple tree" />
+    <meta name="twitter:description" content="A procedural, anime-style tree to grow in your browser and export for three.js." />
+    <meta name="twitter:image" content="https://justasimpletree.com/og-image.png" />
+    <meta name="twitter:image:alt" content="A pink cel-shaded tree in blossom on a tuft of grass, beside the words just a simple tree" />
+
+    <!-- What the page is, for search engines -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "Just a simple tree",
+        "url": "https://justasimpletree.com/",
+        "image": "https://justasimpletree.com/og-image.png",
+        "description": "A procedural, anime-style tree for three.js, to tune in the browser and export as a GLB, an impostor or a sprite sheet.",
+        "applicationCategory": "DesignApplication",
+        "operatingSystem": "Any",
+        "browserRequirements": "Requires WebGPU or WebGL2",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "codeRepository": "https://github.com/MikeFernandez-Pro/just-a-simple-tree"
+      }
+    </script>
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #ffe5f4; }
       canvas { display: block; }
@@ -66,6 +111,15 @@
         <span class="enter">enter</span>
       </button>
     </div>
+    <!-- For readers and crawlers without JavaScript, as the page is otherwise a canvas -->
+    <noscript>
+      <style>#loader { display: none } body { padding: 24px; font: 16px/1.5 monospace; color: #2b2a30 }</style>
+      <h1>Just a simple tree</h1>
+      <p>A procedural, anime-style tree for three.js, to tune in the browser and export as a GLB, an impostor or a
+        sprite sheet. Five species grow from a seed: oak, pine, cypress, weeping willow and bush. It needs JavaScript
+        and WebGPU or WebGL2.</p>
+      <p><a href="https://github.com/MikeFernandez-Pro/just-a-simple-tree">The code on GitHub</a></p>
+    </noscript>
     <script type="module" src="/main.js"></script>
   </body>
 </html>
