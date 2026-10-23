@@ -489,8 +489,14 @@ tree's foot is on the same pixel in each, centred near the bottom.
   shortens the blades into it. It leans with the wind, goes through the
   tree's cel ramp with the tree's shadow on it, and takes the theme's colours.
 - **Wind** sways the whole tree and rocks each leaf card, and swings the
-  willow's strands from where they hang, more towards their tips; **falling leaves**
-  drift downwind and settle on the floor, simulated with a compute shader.
+  willow's strands from where they hang, more towards their tips. On top,
+  each branch swings on its own, out of step with its neighbours: how far
+  builds up along the wood from the ground, faster through thin wood, so
+  the twigs swing most and the trunk hardly at all. A branch and the one it
+  grows from move together where they join, and each leaf clump moves with
+  the wood nearest it. **branch swing** sets how far; at 0 the tree moves as
+  one. **Falling leaves** drift downwind and settle on the floor, simulated
+  with a compute shader.
 - **A new tree**: **new tree** at the bottom, or space, picks a new seed,
   at any time, even while a tree is still growing. The old leaves blow
   away on the wind while the tree scales down into its foot. The moment
@@ -639,6 +645,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | speed | how fast the gusts travel through it |
 | gust size | how big the gusts are, in metres: smaller ones come more often |
 | leaf flutter | how far each leaf card rocks |
+| branch swing | how far each branch swings on its own, the thin ones most, out of step with their neighbours; 0 moves the tree as one |
 
 </details>
 
@@ -741,7 +748,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | `foliage.js` | the leaf cards, their shading, the painted textures and a dropped image's |
 | `shading.js` | lights, shadows, cel ramps, Neutral tone mapping, wood and floor |
 | `grass.js` | the grass patch round the tree's foot |
-| `wind.js` | the sway and the leaf flutter |
+| `wind.js` | the sway, each branch's own swing and the leaf flutter |
 | `falling-leaves.js` | the falling leaves, on the GPU |
 | `reveal.js` | the page opening on the scene once it has loaded, in a ragged circle from the tree |
 | `framing.js` | the camera backing away until the whole tree fits on screen |

@@ -9,6 +9,14 @@ const CAP_RINGS = 3 // rings in the rounded dome closing each branch's tip
 const COLLAR = 0.9 // a child's base radius / its parent's radius there
 const FLARE_HEIGHT = 5 // how far up a flared base spreads / the branch's radius at its start
 const FLARE_RINGS = 6 // rings up a flared base, however coarse the rest of the tube
+// The branches' own sway (wind.js): how far each point of the wood flexes
+// builds up along the wood from the ground, faster through thin wood, and
+// its beat drifts along each branch from where it leaves its parent
+const STIFF_RADIUS = 0.02 // metres: wood thinner than this flexes no more than this would
+const PHASE_DRIFT = 2.5 // radians the beat drifts along a branch, give or take half
+const JOINT_REACH = 0.25 // metres: a branch starting this close to the wood grows from it, flexing with it
+const CELL = 0.5 // metres: the grid the wood is looked up in by
+const SEARCH_RINGS = 4 // cells out from a point it looks for the nearest wood
 
 export const UP = new THREE.Vector3(0, 1, 0)
 export const SIDE = new THREE.Vector3(1, 0, 0)
@@ -26,6 +34,12 @@ export function createWood(params, random) {
   const roots = []
   const births = []
   const lifts = []
+  // For the branches' own sway: per vertex, how far it flexes and its beat
+  const sways = []
+  // Every kink-to-kink stretch of the wood with its flex and beat at both
+  // ends, and a grid of them, to find the wood nearest a point
+  const stretches = []
+  const grid = new Map()
 
   // Turn a direction a random amount around itself
   function kink(dir, amount) {
@@ -61,11 +75,71 @@ export function createWood(params, random) {
       radii.push(radius * (1 - (1 - taper) * (i / segments)))
     }
     const flareTo = flare > 0 ? Math.min((radius * FLARE_HEIGHT) / length, 0.5) : 0
-    tube(points, radii, from, length, hangs ? start.y : undefined, sides, flare, flareTo)
+    // Its flex and beat at each kink, carried on from the wood it grows
+    // from, so where it joins it moves with it
+    const joint = nearestWood(start, JOINT_REACH) ?? { flex: 0, phase: 0 }
+    const flexes = [joint.flex]
+    const phases = [joint.phase]
+    const drift = PHASE_DRIFT * (0.5 + hashOf(start))
+    for (let i = 1; i < points.length; i++) {
+      const thickness = Math.max((radii[i - 1] + radii[i]) / 2, STIFF_RADIUS)
+      flexes.push(flexes[i - 1] + points[i].distanceTo(points[i - 1]) / thickness)
+      phases.push(joint.phase + (drift * i) / segments)
+    }
+    tube(points, radii, from, length, hangs ? start.y : undefined, sides, flare, flareTo, flexes, phases)
+    for (let i = 1; i < points.length; i++) addStretch(points[i - 1], points[i], flexes[i - 1], flexes[i], phases[i - 1], phases[i])
     return { points, radii }
   }
 
-  function tube(kinks, kinkRadii, from, length, hangFrom, sides, flare, flareTo) {
+  function addStretch(a, b, flexA, flexB, phaseA, phaseB) {
+    const index = stretches.push({ a, b, flexA, flexB, phaseA, phaseB }) - 1
+    const lo = [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.min(a.z, b.z)].map((v) => Math.floor(v / CELL))
+    const hi = [Math.max(a.x, b.x), Math.max(a.y, b.y), Math.max(a.z, b.z)].map((v) => Math.floor(v / CELL))
+    for (let x = lo[0]; x <= hi[0]; x++)
+      for (let y = lo[1]; y <= hi[1]; y++)
+        for (let z = lo[2]; z <= hi[2]; z++) {
+          const key = `${x},${y},${z}`
+          if (!grid.has(key)) grid.set(key, [])
+          grid.get(key).push(index)
+        }
+  }
+
+  // The wood nearest a point, within reach: its flex and beat there, or
+  // null if there's no wood that close
+  const along = new THREE.Vector3()
+  const closest = new THREE.Vector3()
+  function nearestWood(point, reach) {
+    let best = null
+    let bestDistance = reach
+    let bestT = 0
+    const rings = Math.min(Math.ceil(reach / CELL), SEARCH_RINGS)
+    const [cx, cy, cz] = [point.x, point.y, point.z].map((v) => Math.floor(v / CELL))
+    const seen = new Set()
+    for (let x = cx - rings; x <= cx + rings; x++)
+      for (let y = cy - rings; y <= cy + rings; y++)
+        for (let z = cz - rings; z <= cz + rings; z++) {
+          for (const index of grid.get(`${x},${y},${z}`) ?? []) {
+            if (seen.has(index)) continue
+            seen.add(index)
+            const stretch = stretches[index]
+            along.subVectors(stretch.b, stretch.a)
+            const t = THREE.MathUtils.clamp(along.dot(closest.subVectors(point, stretch.a)) / Math.max(along.lengthSq(), 1e-12), 0, 1)
+            const distance = closest.copy(stretch.a).addScaledVector(along, t).distanceTo(point)
+            if (distance < bestDistance) {
+              best = stretch
+              bestDistance = distance
+              bestT = t
+            }
+          }
+        }
+    if (!best) return null
+    return {
+      flex: THREE.MathUtils.lerp(best.flexA, best.flexB, bestT),
+      phase: THREE.MathUtils.lerp(best.phaseA, best.phaseB, bestT),
+    }
+  }
+
+  function tube(kinks, kinkRadii, from, length, hangFrom, sides, flare, flareTo, kinkFlexes, kinkPhases) {
     // Subdivide: smoothness rings per kink, along a curve through the kinks,
     // so bends come out round without the branch changing shape. A flared
     // base takes rings of its own up to flareTo, the share of the way along
@@ -77,12 +151,16 @@ export function createWood(params, random) {
     for (let i = 0; i <= steps; i++) if (i / steps >= flareTo) shares.push(i / steps)
     const points = []
     const radii = []
+    const flexes = []
+    const phases = []
     for (const share of shares) {
       points.push(curve.getPoint(share))
       const at = share * (kinks.length - 1)
       const k = Math.min(Math.floor(at), kinks.length - 2)
       const widen = share < flareTo ? 1 + flare * (1 - share / flareTo) ** 2 : 1
       radii.push(THREE.MathUtils.lerp(kinkRadii[k], kinkRadii[k + 1], at - k) * widen)
+      flexes.push(THREE.MathUtils.lerp(kinkFlexes[k], kinkFlexes[k + 1], at - k))
+      phases.push(THREE.MathUtils.lerp(kinkPhases[k], kinkPhases[k + 1], at - k))
     }
 
     const base = positions.length / 3
@@ -93,12 +171,13 @@ export function createWood(params, random) {
     const center = new THREE.Vector3()
 
     // A ring of vertices; bend tips its normals forward, for the cap
-    function ring(radius, bend, birth) {
+    function ring(radius, bend, birth, flex, phase) {
       for (let j = 0; j < sides; j++) {
         centers.push(center.x, center.y, center.z)
         roots.push(kinks[0].x, kinks[0].y, kinks[0].z)
         births.push(birth)
         lifts.push(liftBelow(hangFrom, center.y))
+        sways.push(flex, phase)
         const angle = (j / sides) * Math.PI * 2
         v.copy(normal).multiplyScalar(Math.cos(angle)).addScaledVector(binormal, Math.sin(angle))
         positions.push(center.x + v.x * radius, center.y + v.y * radius, center.z + v.z * radius)
@@ -115,7 +194,7 @@ export function createWood(params, random) {
       normal.addScaledVector(tangent, -normal.dot(tangent)).normalize()
       binormal.crossVectors(tangent, normal)
       center.copy(points[i])
-      ring(radii[i], 0, from + shares[i] * length)
+      ring(radii[i], 0, from + shares[i] * length, flexes[i], phases[i])
     }
 
     // Close the tip with a rounded dome, shrinking rings down to a point
@@ -124,7 +203,7 @@ export function createWood(params, random) {
     for (let k = 1; k <= CAP_RINGS; k++) {
       const bend = (k / CAP_RINGS) * (Math.PI / 2)
       center.copy(end).addScaledVector(tangent, endRadius * Math.sin(bend))
-      ring(endRadius * Math.cos(bend), bend, from + length)
+      ring(endRadius * Math.cos(bend), bend, from + length, flexes.at(-1), phases.at(-1))
     }
 
     for (let i = 0; i < points.length - 1 + CAP_RINGS; i++) {
@@ -149,8 +228,22 @@ export function createWood(params, random) {
     geometry.setAttribute('growCenter', new THREE.Float32BufferAttribute(centers, 3))
     geometry.setAttribute('growRoot', new THREE.Float32BufferAttribute(roots, 3))
     geometry.setAttribute('birth', new THREE.Float32BufferAttribute(births.map((b) => b / farthest), 1))
-    // For the wind
+    // For the wind: the lift, and the branches' own sway, its flex from 0
+    // at the ground to 1 at the most flexible tip. A leaf clump takes the
+    // flex and beat of the wood nearest it, so it moves with its twig. With
+    // no wood at all, as on a bush, each clump bobs on a beat of its own
     geometry.setAttribute('swayLift', new THREE.Float32BufferAttribute(lifts, 1))
+    const most = sways.reduce((top, value, i) => (i % 2 === 0 ? Math.max(top, value) : top), 1e-6)
+    geometry.setAttribute('swayDetail', new THREE.Float32BufferAttribute(sways.map((value, i) => (i % 2 === 0 ? value / most : value)), 2))
+    geometry.userData.swayAt = (point) => {
+      if (stretches.length === 0) return { flex: 1, phase: hashOf(point) * Math.PI * 2 }
+      // Out a ring of cells at a time, most clumps being on their wood
+      for (let rings = 1; rings <= SEARCH_RINGS; rings++) {
+        const found = nearestWood(point, rings * CELL)
+        if (found) return { flex: found.flex / most, phase: found.phase }
+      }
+      return { flex: 0, phase: 0 }
+    }
     return { geometry, farthest }
   }
 
@@ -182,6 +275,13 @@ export function heading(around, rise) {
 export function splay(dir, around, angle) {
   const axis = perpendicular(dir).applyAxisAngle(dir, around)
   return dir.clone().applyAxisAngle(axis, angle)
+}
+
+// A number from 0 to 1 for a point, the same each time, drawn from no
+// random, so it never moves the branches' draws
+function hashOf(p) {
+  const h = Math.sin(p.x * 12.9898 + p.y * 78.233 + p.z * 37.719) * 43758.5453
+  return h - Math.floor(h)
 }
 
 function perpendicular(v) {

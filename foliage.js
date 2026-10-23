@@ -33,7 +33,7 @@ import { GOLDEN_ANGLE, mulberry32, SIDE, UP } from './wood.js'
 import { ALBEDO, celShade, linear, LUMA, sunDirection, tintShadow, toneMapped } from './shading.js'
 import { swept } from './transition.js'
 import { burst, grownLeaf } from './regenerate.js'
-import { downwind, flutter, liftBelow, sway } from './wind.js'
+import { downwind, flutter, liftBelow, packSwing, sway, unpackSwing } from './wind.js'
 import { holographic, updated } from './hologram.js'
 
 // Anime foliage after trungduyng's Blender pipeline: leaf cards scattered
@@ -166,7 +166,8 @@ export function fallingTurned(age) {
 
 export function createFoliage() {
   // Per card: centre and size; the clump's normal there and the card's AO;
-  // the card's own facing and its spin round it; its clump's centre and radius;
+  // the card's own facing and its spin round it; its clump's centre and its
+  // swing in the wind, packed;
   // how far along the wood from the ground its clump is, how far below
   // where it hangs from the card is, and its order through the age; its
   // clump's tint draws, packed
@@ -261,7 +262,7 @@ export function createFoliage() {
     const tumbled = rotate(card, vec3(burst.mul(jitter.mul(12)), burst.mul(7), 0))
     const left = float(1).sub(burst.remap(0.6, 1).clamp(0, 1))
     const placed = clump.add(center.sub(clump).mul(size))
-    return placed.add(blown).add(tumbled.mul(size.mul(left).mul(life.size))).add(sway(center, e.y))
+    return placed.add(blown).add(tumbled.mul(size.mul(left).mul(life.size))).add(sway(center, e.y, unpackSwing(d.w)))
   })()
 
   // How many squares a card is cut into; they only show once roundness
@@ -422,7 +423,7 @@ export function createFoliage() {
     // their leaves point down, and swings in the wind from there. A card
     // that's hidden is left out, once it has drawn all its randoms, so
     // leaving it out never moves the cards after it
-    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth }, c) => {
+    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth, swing = NO_SWING }, c) => {
       const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
       // Turn each clump's pattern randomly, so no two clumps line up
       turn.setFromEuler(euler.set(random() * 6.28, random() * 6.28, random() * 6.28))
@@ -472,7 +473,7 @@ export function createFoliage() {
         A.set([p.x, p.y, p.z, size], n * 4)
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, twist], n * 4)
-        D.set([position.x, position.y, position.z, radius], n * 4)
+        D.set([position.x, position.y, position.z, packSwing(swing)], n * 4)
         cardE.array.set([birth, liftBelow(hangFrom, p.y), order, tint], n * 4)
         n++
       }
@@ -659,15 +660,16 @@ export function createFoliage() {
 // stretches it, swaying with the wood. Cel shaded through the leaves' bands,
 // like the cards, and casting the floor's shadow while the cards are away
 const MAX_CLUMPS = 8192 // most clumps it draws
+const NO_SWING = { flex: 0, phase: 0 }
 function createClumpView(bands) {
   const sphere = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 4), 4) // centre, radius
-  const shape = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 2), 2) // flatten, lift
+  const shape = new THREE.InstancedBufferAttribute(new Float32Array(MAX_CLUMPS * 4), 4) // flatten, lift, swing's flex and beat
   sphere.setUsage(THREE.DynamicDrawUsage)
   shape.setUsage(THREE.DynamicDrawUsage)
   const s = instancedBufferAttribute(sphere)
   const f = instancedBufferAttribute(shape)
   const material = new THREE.MeshLambertNodeMaterial({ color: new THREE.Color().setRGB(ALBEDO, ALBEDO, ALBEDO) })
-  material.positionNode = s.xyz.add(sway(s.xyz, f.y)).add(positionGeometry.mul(vec3(1, f.x, 1)).mul(s.w))
+  material.positionNode = s.xyz.add(sway(s.xyz, f.y, f.zw)).add(positionGeometry.mul(vec3(1, f.x, 1)).mul(s.w))
   material.receivedShadowNode = tintShadow
   material.outputNode = vec4(toneMapped(celShade(LEAF_STOPS.map((at, i) => [at, bands[i]]))), 1)
   const mesh = new THREE.Mesh(new THREE.IcosahedronGeometry(1, 4), material)
@@ -679,9 +681,9 @@ function createClumpView(bands) {
   function update(clumps) {
     mesh.count = Math.min(clumps.length, MAX_CLUMPS)
     for (let i = 0; i < mesh.count; i++) {
-      const { position, radius, flatten, hangFrom } = clumps[i]
+      const { position, radius, flatten, hangFrom, swing = NO_SWING } = clumps[i]
       sphere.array.set([position.x, position.y, position.z, radius], i * 4)
-      shape.array.set([flatten, liftBelow(hangFrom, position.y)], i * 2)
+      shape.array.set([flatten, liftBelow(hangFrom, position.y), swing.flex, swing.phase], i * 4)
     }
     if (mesh.count > 0) for (const attribute of [sphere, shape]) uploadFirst(attribute, mesh.count)
   }

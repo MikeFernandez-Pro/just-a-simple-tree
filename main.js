@@ -297,6 +297,9 @@ function rebuildIfWanted() {
 let grown;
 function rebuild() {
   grown = SPECIES[params.species].grow(params);
+  // Each clump swings with the wood nearest it
+  for (const clump of grown.clumps)
+    clump.swing = grown.geometry.userData.swayAt(clump.position);
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
@@ -836,6 +839,8 @@ speciesSetting(
   "flutter",
   breeze.add(wind.flutter, "value", 0, 1).name("leaf flutter"),
 );
+// How far each branch swings on its own, the thin ones most
+breeze.add(wind.branches, "value", 0, 2).name("branch swing");
 
 // The patch round the tree's foot: its size and blades, how hard the wind
 // blows it, and its shading
