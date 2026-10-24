@@ -9,8 +9,7 @@ import { wind } from "./wind.js";
 // standing still. Under them, three lofi tracks play one after the other,
 // round and round, at a steady volume. A whoosh sweeps in each new theme,
 // peaking about two thirds of the way through the sweep. Each new tree, a
-// new species or seed, snaps the old one like wood as it breaks down, and
-// pops as it springs up. It all starts as you enter the
+// new species or seed, pops as it springs up. It all starts as you enter the
 // page, easing in: a browser only lets a page make sound once you've done
 // something on it, and entering is that. A round sticker beside the GitHub
 // one turns it all off and on, as M does. Hovering it brings out a bar
@@ -29,10 +28,9 @@ const TRACKS = ["chill-vlog-beats", "sunny-cafe", "beautiful-lofi"];
 const MUSIC = 0.3; // the music's gain
 // The short sounds, from Pixabay too, as Opus and as an MP3 like the music,
 // each with its gain and the speed it plays at, a slower one lower: a
-// theme's whoosh, and the wood breaking and the pop of a new tree
+// theme's whoosh, and the pop of a new tree
 const EFFECTS = {
   whoosh: { gain: 0.3, rate: 1 },
-  break: { gain: 0.05, rate: 2 }, // loud enough to crack through the music's beat
   pop: { gain: 0.12, rate: 0.6 },
 };
 const OVERALL = 0.8; // the gain of everything, at the bar's top

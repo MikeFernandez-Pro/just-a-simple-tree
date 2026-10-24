@@ -77,12 +77,12 @@ const easeOut = (t) => 1 - (1 - t) ** 3;
 // hold(true) keeps the tree as it is, whatever changes, until hold(false)
 // rebuilds it with the latest. A change that wants a new tree is made, then
 // regrow called: the tree held shows until it has shrunk away
-// onBreak is called as each new tree is asked for, the old one breaking
-// down, and onSpringUp as each new tree starts springing up, but not the
+// onSpringUp is called as each new tree starts springing up, but not the
 // first, which comes up as the page opens
-export function createRegenerate({ hold, falling, onBreak, onSpringUp }) {
+export function createRegenerate({ hold, falling, onSpringUp }) {
   let wanted = false;
   let running = null;
+  let waiting = 0; // new trees asked for that haven't broken the old one yet
 
   function tween(seconds, onUpdate, stop = () => false) {
     return new Promise((resolve) => {
@@ -162,7 +162,10 @@ export function createRegenerate({ hold, falling, onBreak, onSpringUp }) {
         treeSize.height = height * (1 - easeOut(t));
       });
 
-      // The old tree has shrunk away: swap in the new one, and bring it up
+      // The old tree has shrunk away: swap in the new one, and bring it up,
+      // once no other new tree is still on its way to break it, so the one
+      // that comes up is the latest
+      while (waiting > 0) await tween(0, () => {});
       swapped = true;
       wanted = false;
       hold(false);
@@ -213,10 +216,15 @@ export function createRegenerate({ hold, falling, onBreak, onSpringUp }) {
     return running;
   }
 
-  // Resolves once the newest tree has grown
-  function regrow() {
-    onBreak();
+  // Resolves once the newest tree has grown. With a delay, in seconds, the
+  // old tree is held as it is until then, and only then breaks
+  async function regrow(delay = 0) {
     hold(true);
+    if (delay > 0) {
+      waiting++;
+      await new Promise((resolve) => setTimeout(resolve, delay * 1000));
+      waiting--;
+    }
     wanted = true;
     running ??= run();
     return running;

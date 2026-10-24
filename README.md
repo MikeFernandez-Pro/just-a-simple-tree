@@ -23,7 +23,8 @@ painted in code.
 
 1. Open <https://justasimpletree.com/>.
 2. Pick a species with the buttons down the left, and a theme with the ones
-   along the top.
+   along the top. Grow it up and run it through a year with the **age** and
+   **season** sliders on the right.
 3. Tune the tree in the panel at the top right.
 4. Click **export** at the bottom and pick what to save.
 
@@ -53,11 +54,19 @@ Actions.
     strands falling in curtains;
   - **bush**: no wood, just a dome of leaf clumps on the ground.
 - **Seeds**: the same seed and settings always grow the same tree.
-  **new tree**, at the bottom, picks a new seed: the old tree shrinks into
-  the ground as its leaves blow away, and the new one springs up. Each seed
+  **new tree**, at the bottom, picks a new seed: a sweep whooshes across
+  the screen and knocks the old tree down as it reaches it, the tree
+  shrinking into the ground as its leaves blow away, and the new one
+  springs up. Picking another species does the same. Each seed
   also gives its tree a character of its own, taller or shorter, broader or
   slimmer, leaning a little. **variety** sets how much; at 0 every seed
   grows its species' average shape.
+- **Tree age** grows the same tree from a sapling, a thin stem with a few
+  short limbs, to an old one, stout, gnarled and spreading at its foot.
+  Its branches sprout and lengthen as it ages, from the trunk out to the
+  twigs, each leaf clump growing in as its branch reaches out. Its height levels
+  off as it matures while its trunk keeps thickening. Its slider is on
+  screen, on the right, as well as in the panel.
 - **Leaves** are leaf cards, small flat quads with leaves painted on them,
   scattered over round leaf clumps. Each card takes its clump's normals, so
   a clump shades like one soft ball, in the hard-edged colour bands of cel
@@ -67,12 +76,14 @@ Actions.
   and can keep its own colours (**colors from**); any other image is read as
   white leaves on black, in the theme's colours. The image is only kept in
   your browser, so a link using it shows it on your machine alone.
-- **Leaf age** runs the leaves through a year, from unfolding to a bare
+- **Season** runs the leaves through a year, from unfolding to a bare
   tree, the outside of the crown turning first. Young leaves sit small and
-  close in on their twigs, and move out as they grow.
+  close in on their twigs, and move out as they grow. Its slider sits
+  beside the age's on screen.
 - **Ambient occlusion**, the darkening deep inside the crown, is worked out
   per card on the CPU, so it follows the sun and never the camera. Cards
-  buried deep in a neighbouring clump are left out, saving vertices.
+  buried deep in a neighbouring clump are left out of the export, saving
+  vertices.
 - **Wind** sways the tree, swings each branch on its own, the twigs most,
   and rocks every leaf card. **Falling leaves** drift downwind and settle on
   the floor, simulated in a compute shader.
@@ -138,6 +149,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 
 | slider | species | what it does |
 | --- | --- | --- |
+| tree age | all | from a sapling at 0, with only its first branches, to an old tree at 1; at 0.6 the tree is just as the other sliders grow it |
 | size | all | the tree's height |
 | main limbs | oak, willow | how many limbs the trunk splits into |
 | levels | oak | how many times each limb branches again |
@@ -165,11 +177,11 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 </details>
 
 <details>
-<summary><b>Leaves</b>: age, clumps, cards, shading and colours</summary>
+<summary><b>Leaves</b>: season, clumps, cards, shading and colours</summary>
 
 | control | what it does |
 | --- | --- |
-| age | the leaves through a year: unfolding at 0, full grown by 0.25, turning from 0.45, bare at 1 |
+| season | the leaves through a year: unfolding at 0, full grown by 0.25, turning from 0.45, bare at 1 |
 | **clumps** | |
 | clump size | scales every leaf clump, and its cards with it |
 | evenness | takes every clump towards one size, keeping their total leaf area |
@@ -192,7 +204,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | show normals | *debug*: the cards coloured by their normals |
 | **colors** | |
 | shadow, mid, light | the leaves' three cel bands |
-| turned shadow, turned mid, turned light | the colours the leaves turn to as they age |
+| turned shadow, turned mid, turned light | the colours the leaves turn to in autumn |
 | variation | how far each clump's colours stray from its neighbours' |
 
 </details>
@@ -306,12 +318,13 @@ origin. The card in the bottom left corner shows how many vertices it will
 have. Its materials are plain `MeshStandardMaterial`s, so it opens in any
 glTF viewer or engine. Its meshes are:
 
-- **`wood`**: the branches and twigs. A bush has none.
+- **`wood`**: the branches, and the twigs when the season shows them,
+  not in summer, when they're hidden under the leaves. A bush has none.
 - **`leaves`**: alpha-masked, double-sided cards with their clumps' normals,
   the gradient and ambient occlusion baked into the vertex colours.
 - **`young leaves`** and **`turned leaves`**: the cards still unfolding or
-  already turned at the leaves' **age**, each with its own colours, there
-  only when the age has some.
+  already turned at the **season**, each with its own colours, there
+  only when the season has some.
 
 Its textures are PNGs. Under their transparent pixels they keep the leaves'
 colours rather than black, so the leaves' edges don't darken in the
@@ -635,6 +648,7 @@ Where to start:
   shape rules, button icon, sliders and settings.
 - `wood.js`: the branches and the twigs in the leaf clumps, as tubes, for
   every species.
+- `tree-age.js`: how a tree's shape changes as it ages.
 - `foliage.js`: the leaf cards, their textures and their ambient occlusion.
 - `wind.js`: the sway, each branch's swing and the leaves' flutter.
 - `shading.js`: the lights, shadows and cel colour bands.
@@ -659,12 +673,12 @@ and on WebGL2 as well as WebGPU.
 - The music is by [alex-morgan](https://pixabay.com/users/alex-morgan-54692529/)
   and [ZephiraMusic](https://pixabay.com/users/zephiramusic-54643547/), the
   whoosh and the pop by [DRAGON-STUDIO](https://pixabay.com/users/dragon-studio-38165424/),
-  and the wood breaking by BOAAY, all from Pixabay. See
+  all from Pixabay. See
   [public/music/CREDITS.md](public/music/CREDITS.md) for each track.
 
 ## License
 
-The code is [MIT](LICENSE). The music in `public/music/` and the whoosh,
-wood break and pop in `public/sounds/` aren't: they're under the Pixabay Content License, which
+The code is [MIT](LICENSE). The music in `public/music/` and the whoosh
+and pop in `public/sounds/` aren't: they're under the Pixabay Content License, which
 doesn't allow distributing them on their own, so get them from Pixabay to
 use them elsewhere.

@@ -35,6 +35,7 @@ const STRAND_PULL = 0.5 // how hard each kink bends a strand down
 const ARCH = 0.1 // the length a strand spends arching over / the height
 const GROUND_GAP = 0.05 // the lowest a strand reaches above the ground / the height
 const STRAND_CLUMPS = 0.11 // the gap between clumps down a strand / the height
+const START_HEIGHT = 0.8 // a strand's start's height above the ground / its distance along the wood from it, about
 const STRAND_CLUMP = 0.045 // a strand's first clump's radius / the height
 const STRAND_FLATTEN = 2.4 // a strand's clumps' height / their width: long, narrow tresses
 const LEAVES_FROM = 0.12 // how far along a strand its first clump is
@@ -115,8 +116,11 @@ function grow(params) {
     for (let b = 0; b < BOUGHS; b++) {
       const k = 2 + Math.floor(random() * (LIMB_SEGMENTS - 2))
       const { point, dir: limbDir, radius } = alongBranch(limb, k / LIMB_SEGMENTS)
-      // Boughs lean away from the trunk, never back across the crown
-      const outwards = Math.atan2(limbDir.z, limbDir.x)
+      // Boughs lean away from the trunk, never back across the crown: on
+      // the bearing from the trunk's top out to where they leave, which,
+      // unlike the limb's own way there, never comes near upright, where its
+      // bearing would spin round at the least kink
+      const outwards = Math.atan2(point.z - top.z, point.x - top.x)
       const boughDir = leanOut(limbDir, outwards + (random() - 0.5) * 2.2, BOUGH_SPREAD * (0.7 + random() * 0.6))
       const boughLength = length * BOUGH_LENGTH * (0.8 + random() * 0.4)
       const from = trunkLength + (k / LIMB_SEGMENTS) * length
@@ -140,7 +144,9 @@ function grow(params) {
   let owed = 0
   for (const { shape, length, from } of arches) {
     owed += (params.willowStrands * length) / total
-    const count = Math.floor(owed)
+    // A hair over, so a share that comes to a whole number isn't lost to
+    // rounding at some sizes and kept at others
+    const count = Math.floor(owed + 1e-9)
     owed -= count
     for (let s = 0; s < count; s++) {
       const along = THREE.MathUtils.lerp(STRANDS_FROM, 1, (s + 0.2 + random() * 0.6) / count)
@@ -152,9 +158,16 @@ function grow(params) {
       const rise = STRAND_RISE * (0.5 + random())
       const dir = heading(around, rise)
       const room = Math.max(point.y - height * GROUND_GAP, 0)
-      const drop = Math.min(room * hang * (0.8 + random() * 0.3), room)
-      const strandLength = height * ARCH + drop
+      const fall = hang * (0.8 + random() * 0.3)
+      const strandLength = height * ARCH + Math.min(room * fall, room)
       const start = from + along * length
+      // How many clumps it carries goes by how long it would be if its
+      // start were as high as it is on average for how far along the wood
+      // it is: unlike its height, that only scales with the size, so the
+      // count never changes with the tree's age, which kinks the wood more
+      // or less, and never reshuffles the clumps after it
+      const typicalRoom = Math.max(start * START_HEIGHT - height * GROUND_GAP, 0)
+      const clumpCount = Math.max(2, Math.round(((height * ARCH + Math.min(typicalRoom * fall, typicalRoom)) * (1 - LEAVES_FROM)) / (height * STRAND_CLUMPS)))
       const strand = wood.branch(point, dir, strandLength, strandRadius, params.crookedness * 0.3, {
         parent: { dir: archDir, radius: Math.min(radius, strandRadius * 2.5) },
         from: start,
@@ -164,7 +177,7 @@ function grow(params) {
         hangs: true,
         sides: Math.max(3, Math.round(params.sides * STRAND_SIDES)),
       })
-      strands.push({ shape: strand, length: strandLength, from: start, hangFrom: point.y })
+      strands.push({ shape: strand, length: strandLength, from: start, hangFrom: point.y, clumpCount })
     }
   }
 
@@ -188,10 +201,9 @@ function grow(params) {
       clumps.push({ position: alongBranch(shape, along).point, radius, flatten: CROWN_FLATTEN, birth })
     }
   }
-  for (const { shape, length, from, hangFrom } of strands) {
-    const count = Math.max(2, Math.round((length * (1 - LEAVES_FROM)) / (height * STRAND_CLUMPS)))
-    for (let c = 0; c < count; c++) {
-      const along = THREE.MathUtils.lerp(LEAVES_FROM, 0.999, c / (count - 1))
+  for (const { shape, length, from, hangFrom, clumpCount } of strands) {
+    for (let c = 0; c < clumpCount; c++) {
+      const along = THREE.MathUtils.lerp(LEAVES_FROM, 0.999, c / (clumpCount - 1))
       const radius = height * STRAND_CLUMP * (1 - 0.45 * along) * (0.85 + leafRandom() * 0.3) * params.clumpSize
       const birth = (from + along * length) / farthest
       clumps.push({ position: alongBranch(shape, along).point, radius, flatten: STRAND_FLATTEN, hangFrom, birth })

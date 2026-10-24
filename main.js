@@ -25,6 +25,7 @@ import {
   LEAF_TEXTURES,
   OWN_TEXTURE,
   ownLeaves,
+  twigsShow,
 } from "./foliage.js";
 import { createImageDrop } from "./image-drop.js";
 import { createFallingLeaves } from "./falling-leaves.js";
@@ -41,6 +42,7 @@ import { bounds, vertices } from "./bounds.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
 import { createSpeciesButtons } from "./species-buttons.js";
 import { createVertexCount } from "./vertex-count.js";
+import { createTimeSliders } from "./time-sliders.js";
 import { sweep, sweptBackground } from "./transition.js";
 import { createShake } from "./shake.js";
 import { createFraming } from "./framing.js";
@@ -56,6 +58,7 @@ import {
   sunDirection,
 } from "./shading.js";
 import { swayedWood, wind } from "./wind.js";
+import { growAged, MATURE } from "./tree-age.js";
 import { positionGeometry } from "three/tsl";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -111,12 +114,23 @@ const edgeOf = (selector) =>
 const framing = createFraming({
   camera,
   controls,
-  clear: () => ({
-    top: edgeOf(".themes")?.bottom ?? 0,
-    bottom: innerHeight - (edgeOf(".bar")?.top ?? innerHeight),
-    left: edgeOf(".species")?.right ?? 0,
-    right: 0,
-  }),
+  // The age and season card takes the right edge, or, in the bottom corner
+  // of a narrow screen, the bottom
+  clear: () => {
+    const time = edgeOf(".time");
+    const cornered = time && time.top > innerHeight / 2;
+    return {
+      top: edgeOf(".themes")?.bottom ?? 0,
+      bottom:
+        innerHeight -
+        Math.min(
+          edgeOf(".bar")?.top ?? innerHeight,
+          cornered ? time.top : innerHeight,
+        ),
+      left: edgeOf(".species")?.right ?? 0,
+      right: time && !cornered ? innerWidth - time.left : 0,
+    };
+  },
 });
 
 // The sun, and a sky-and-ground fill for what it doesn't reach
@@ -135,6 +149,7 @@ scene.add(ground);
 const params = {
   species: "oak",
   seed: 8263,
+  treeAge: MATURE, // 0 a sapling to 1 old; at MATURE the tree is as the other settings grow it
   size: 4.87,
   trunkThickness: 0.21,
   baseFlare: 1.69, // how much wider the trunk spreads at the ground, like roots
@@ -159,6 +174,8 @@ const params = {
   twigs: 5, // twigs grown into a leaf clump of average size, for its leaves to hang from
   variety: 1, // how far each seed's own character takes its tree from its species' average
   cardsPerClump: 35,
+  cardSize: 0.92, // grows the cards without adding any
+  roundness: 0.58, // how far cards wrap round their clump
   clumpSize: 1, // scales every leaf clump, and its cards with it
   clumpEvenness: 0, // 0 leaves the clumps the sizes they grew, 1 makes them all one size
   aoDistance: 2.5, // the tutorial's AO node distance
@@ -235,6 +252,16 @@ function showLeafColors() {
     mine && params.leafColors === "image" ? 1 : 0;
 }
 setLeafTexture(params.leafTexture);
+// The cards' size and roundness wait for the new tree the same way, or the
+// old tree's leaves would take a new species' as they blow away
+let cardLookWaiting = false;
+function setCardLook() {
+  cardLookWaiting = held;
+  if (held) return;
+  foliage.uniforms.cardSize.value = params.cardSize;
+  foliage.uniforms.roundness.value = params.roundness;
+}
+setCardLook();
 
 // A new image puts itself on the leaves, in its own colours when it has
 // transparency to cut them out with and colours to keep, in the theme's
@@ -300,6 +327,8 @@ function rebuildIfWanted() {
   else if (rescatter) scatterLeaves();
 }
 
+const SMALLEST_CLUMP = 1e-4; // metres: a clump not grown yet, so nothing divides by its radius
+
 // Evenness takes every clump's radius towards one size for them all, the
 // one that keeps their total area: 0 leaves them as they grew, 1 makes them
 // all that size
@@ -313,15 +342,31 @@ function evenOut(clumps, evenness) {
 }
 
 let grown;
+// Twigs are only grown when the season shows them: through summer every
+// leaf is out at its place, hiding them, and none hangs from them, and they
+// take as long to build as the rest of the tree. twigsBuilt is whether the
+// tree shown has them
+let twigsBuilt = false;
+const twigsWanted = () => twigsShow(foliage.uniforms.age.value);
 function rebuild() {
+  // The tree as far as its age has grown it
   const species = SPECIES[params.species];
-  grown = species.grow(params);
+  grown = growAged(species, params);
   evenOut(grown.clumps, params.clumpEvenness);
+  // A young tree's clumps are only as big as they've grown, keeping their
+  // full radius for how many cards and twigs they get, so those never
+  // change with the age, they only grow out with their clump
+  for (const clump of grown.clumps) {
+    clump.fullRadius = clump.radius;
+    clump.radius = Math.max(clump.radius * (clump.grown ?? 1), SMALLEST_CLUMP);
+  }
   // Each clump swings with the wood nearest it, and has twigs grown into
   // it, for its leaves to hang from
-  for (const clump of grown.clumps)
-    clump.swing = grown.geometry.userData.swayAt(clump.position);
-  if (!species.woodless)
+  grown.clumps.forEach((clump, i) => {
+    clump.swing = grown.geometry.userData.swayAt(clump.position, i);
+  });
+  twigsBuilt = twigsWanted();
+  if (!species.woodless && twigsBuilt)
     grown.geometry = grown.geometry.userData.withTwigs(
       grown.clumps,
       params.twigs,
@@ -408,21 +453,33 @@ const { regrow, waitToAppear, appear } = createRegenerate({
   hold: (on) => {
     held = on;
     if (on) return;
+    // Before the rebuild, which sizes the vertex count and framing by them
+    if (cardLookWaiting) setCardLook();
     rebuildIfWanted();
     if (leafTextureWaiting) setLeafTexture(params.leafTexture);
   },
   falling,
-  onBreak: () => sound.play("break"),
   onSpringUp: () => sound.play("pop"),
 });
 // The first tree waits in the ground until the page is revealed
 waitToAppear();
+// A new tree, from a new seed or species, is knocked down by a sweep: one
+// comes through with its whoosh, as a theme's does but in the theme the page
+// already has, so only its bright front shows, and the moment it reaches
+// the tree it hits it, and the tree breaks. While the page opens, the tree
+// changes at once
+function breakTree() {
+  if (!themeSeconds) return regrow();
+  sweep(themeSeconds);
+  sound.play("whoosh");
+  return regrow(shake.start(themeSeconds));
+}
 // A new seed: from the button at the bottom or space, even while a tree
 // grows. It resolves once the latest tree has grown. It goes through its
 // slider, so the panel shows it
 function newTree() {
   seedControl.setValue(1 + Math.floor(Math.random() * 9999));
-  return regrow();
+  return breakTree();
 }
 
 // A slider's box is a plain text field: a number typed into it may go past
@@ -466,6 +523,7 @@ const seedControl = onChangeNow(
 // name, where those differ from a slider's own. A species shows the ones it
 // lists as its own, and the ones no species lists show for all
 const SHAPE_SLIDERS = {
+  treeAge: { min: 0, max: 1, name: "tree age" },
   size: { min: 2, max: 8 },
   mainLimbs: { min: 3, max: 6, step: 1, name: "main limbs" },
   levels: { min: 0, max: 4, step: 1 },
@@ -566,7 +624,7 @@ onChangeNow(speciesControl, () => {
     control.setValue(speciesDefault(key));
   }
   requestRebuild();
-  if (speciesRegrows) regrow();
+  if (speciesRegrows) breakTree();
 });
 speciesButtons.show(params.species);
 // The debug views, kept out of the page's address, so a reload or a shared
@@ -764,12 +822,19 @@ addEventListener("keydown", (e) => {
 });
 
 const leafSection = renderer.inspector.createParameters("Leaves");
-// The leaves' age: unfolding small and pale, summer, turning to the turned
-// colours, then dropping until the tree is bare. Dropped cards don't export
-leafSection
+// The season, the leaves' age through the year: unfolding small and pale,
+// summer, turning to the turned colours, then dropping until the tree is
+// bare. Dropped cards don't export
+const seasonControl = leafSection
   .add(foliage.uniforms.age, "value", 0, 1)
-  .name("age")
-  .onChange(countVertices);
+  .name("season")
+  .onChange(() => {
+    countVertices();
+    // Into or out of summer, the twigs' wood is built or left out
+    if (twigsWanted() !== twigsBuilt) requestRebuild();
+  });
+// The tree's age and the season, on screen too, at the right edge
+createTimeSliders({ age: shapeControls.treeAge, season: seasonControl });
 // The clumps the cards are scattered over, one on each free branch tip:
 // clump size grows them all, and bigger clumps get more cards. Evenness
 // takes them all towards one size, keeping their total area, without
@@ -824,7 +889,7 @@ debugView(cards.add(params, "showTexture"))
   .onChange((v) => (foliage.uniforms.textured.value = v ? 1 : 0));
 speciesSetting(
   "cardSize",
-  cards.add(foliage.uniforms.cardSize, "value", 0.1, 3).name("size"),
+  cards.add(params, "cardSize", 0.1, 3).name("size").onChange(setCardLook),
 );
 // How many squares each card is cut into, and how far they wrap round their
 // clump's sphere. Segments only show once roundness bends them
@@ -837,7 +902,10 @@ cards
   });
 speciesSetting(
   "roundness",
-  cards.add(foliage.uniforms.roundness, "value", 0, 1).name("roundness"),
+  cards
+    .add(params, "roundness", 0, 1)
+    .name("roundness")
+    .onChange(setCardLook),
 );
 const leafShading = leafSection.addFolder("shading");
 leafShading
@@ -1057,7 +1125,10 @@ addCopyConfig(renderer.inspector, sections);
 // The address keeps every changed value but the debug views, so a link
 // brings back this tree. What a theme or species sets counts as changed
 // when it's away from where they put it, since the link puts them on first
-addShareLink(sections, debugControls, following);
+// The leaves' season was once their age
+addShareLink(sections, debugControls, following, {
+  "Leaves/age": "Leaves/season",
+});
 // Then the image kept from last time, for a link that asks for your image
 imageDrop.restore();
 // Now the address has landed, a theme picked eases in, and a species picked

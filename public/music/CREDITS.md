@@ -16,13 +16,9 @@ by [DRAGON-STUDIO](https://pixabay.com/users/dragon-studio-38165424/), on
 Pixabay too. The pop as a new tree springs up, `public/sounds/pop`, the
 pop alone with the silence and hiss round it cut, is
 [Clean Minimal Pop](https://pixabay.com/sound-effects/clean-minimal-pop-467466/)
-by the same DRAGON-STUDIO. The wood breaking as a new tree is asked for,
-`public/sounds/break`, the first of its five breaks alone, is
-[Wood Break](https://pixabay.com/sound-effects/m%C3%A9nage-wood-break-40011/)
-by BOAAY on Freesound, shared on Pixabay by
-[freesound_community](https://pixabay.com/users/freesound_community-46691455/).
+by the same DRAGON-STUDIO.
 
-All six are under the [Pixabay Content License](https://pixabay.com/service/license-summary/):
+All five are under the [Pixabay Content License](https://pixabay.com/service/license-summary/):
 free to use, attribution not required but given here. The license doesn't
 allow distributing them on their own, so they're not covered by this
 repository's license: to use them elsewhere, get them from Pixabay.

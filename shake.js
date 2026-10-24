@@ -52,10 +52,12 @@ export function createShake({ camera, falling, tree, leaves, crownCenter }) {
   const push = (SQUASH * omega) / lost
 
   // A sweep lasting seconds has started: its hit lands when its front reaches
-  // the crown
+  // the crown, which is how many seconds from now it gives
   function start(seconds) {
     crown.copy(crownCenter.value).project(camera)
-    hits.push(performance.now() + arrival(crown.x, crown.y, camera.aspect) * seconds * 1000)
+    const delay = arrival(crown.x, crown.y, camera.aspect) * seconds
+    hits.push(performance.now() + delay * 1000)
+    return delay
   }
 
   function hit(now) {

@@ -141,8 +141,10 @@ const plain = (value) => (typeof value === 'number' ? Math.round(value * 1e4) / 
 // and sets the ones an address arrives with, leaving out the controls in
 // skip. A control in following, set by another one like a theme, counts as
 // changed when it's away from where that puts it now, the value following
-// gives, rather than from where it started. Call once every control exists
-export function addShareLink(sections, skip = [], following = new Map()) {
+// gives, rather than from where it started. renamed takes a control's old
+// path to its new one, so an old link still sets it. Call once every
+// control exists
+export function addShareLink(sections, skip = [], following = new Map(), renamed = {}) {
   const controls = new Map(sections.flatMap((section) => paths(section)).filter(([, editor]) => !skip.includes(editor)))
   const starting = new Map([...controls].map(([path, editor]) => [path, plain(valueOf(editor))]))
   const unchanged = (path, editor) =>
@@ -179,7 +181,7 @@ export function addShareLink(sections, skip = [], following = new Map()) {
   }
   const apply = () => {
     for (const [path, value] of Object.entries(wanted)) {
-      const editor = controls.get(path)
+      const editor = controls.get(renamed[path] ?? path)
       if (editor && plain(valueOf(editor)) !== value) editor.setValue(value)
     }
   }

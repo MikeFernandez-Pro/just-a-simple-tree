@@ -46,6 +46,7 @@ import { holographic, updated } from './hologram.js'
 
 const CAPACITY = 1 << 16 // most cards we'll ever draw
 const E_STRIDE = 8 // numbers per card in its last buffer: its E, then the point it hangs from
+const SMALLEST_CARD = 0.005 // metres: a card narrower than this, hidden or on a clump not grown yet, doesn't export
 const CARD_RATIO = 1.8 // card width / clump radius
 const TILT = 0.6 // how far a card leans off its clump's surface, at most
 const AO_RAYS = 12 // rays per card, cosine-weighted round its normal
@@ -53,6 +54,7 @@ const AO_RAYS = 12 // rays per card, cosine-weighted round its normal
 // trees like the pine have hundreds within reach, and the farther ones
 // barely shade it
 const AO_NEIGHBOURS = 24
+const NEIGHBOUR_FADE = 0.25 // how far before being left out a neighbour starts counting for less / reach
 // Clumps are leafy volumes, not solid balls: light fades with the length of
 // the ray inside one, so a ray straight through a clump keeps 10% of it and
 // a card just inside a neighbour's edge keeps nearly all
@@ -66,6 +68,7 @@ const UPRIGHT = 0.99 // how near straight up or down a card faces before its fra
 // cypress's gets its fullness from the layers inside
 const BURIED = 0.8 // distance from the neighbour's centre / its radius
 const HIDDEN = 0.1 // the most light a card's AO lets in, of all, for it to be left out
+const FADE_IN = 0.15 // how far a card fades back in over, past being buried or that dark / where it starts
 // Where each leaf colour starts, from shadow to light. The tutorial's ramp
 // has a fourth, darkest colour under 0.04545, for leaves facing away from
 // its only light; here the hemisphere fills them, so none got that dark
@@ -157,6 +160,13 @@ function cardLifeNode(age, order) {
 // towards white
 function youngBand(band, light) {
   return mix(band, mix(light, vec3(1), PALE_LIGHT), YOUNG_PALE)
+}
+
+// Whether the twigs would be seen at a leaves' age: while some leaves are
+// still unfolding, or once the first have dropped. Through summer every
+// card is out, and the twigs are hidden under them
+export function twigsShow(age) {
+  return age < FLUSH || age > DROP_FROM
 }
 
 // How many leaves fall at an age, as a share of the amount: none from a tree
@@ -398,17 +408,12 @@ export function createFoliage() {
       known.near = nearestClumps(known.clumps, reach)
     }
     const { clumps, near } = known
-    const random = mulberry32(params.seed + 104729)
-    // The cards' tilts draw from their own random, so the rest of the
-    // scatter doesn't depend on how many draws a tilt takes, and so do their
-    // orders through the age
-    const tiltRandom = mulberry32(params.seed + 15485863)
-    const orderRandom = mulberry32(params.seed + 32452843)
-    const tintRandom = mulberry32(params.seed + 49979687)
 
-    // Cards per clump scale with its area, so cardsPerClump is the count
-    // on a clump of average size
-    const meanArea = clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(clumps.length, 1)
+    // Cards per clump scale with its full grown area, so cardsPerClump is
+    // the count on a clump of average size, and a young tree's clumps have
+    // as many as they'll ever have, growing out with them
+    const fullArea = (c) => (c.fullRadius ?? c.radius) ** 2
+    const meanArea = clumps.reduce((sum, c) => sum + fullArea(c), 0) / Math.max(clumps.length, 1)
 
     const A = cardA.array
     const B = cardB.array
@@ -430,12 +435,22 @@ export function createFoliage() {
     // on its top and darkens under it. Above 1 it's stretched upright
     // instead. One that hangs, from the height hangFrom, turns its cards so
     // their leaves point down, and swings in the wind from there. A card
-    // that's hidden is left out, once it has drawn all its randoms, so
-    // leaving it out never moves the cards after it. Each card hangs from
+    // that's hidden keeps its place at no size, so the cards after it keep
+    // theirs, and their leaves and flutter with them. Each card hangs from
     // the nearest point on its clump's twigs, or, if it has none, from its
     // foot on the ground, or its centre
-    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth, swing = NO_SWING, twigs = [], foot = position }, c) => {
-      const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
+    clumps.forEach((clump, c) => {
+      const { position, radius, flatten, hangFrom, hanging, birth, swing = NO_SWING, twigs = [], foot = position } = clump
+      const cards = Math.max(1, Math.round((params.cardsPerClump * fullArea(clump)) / meanArea))
+      // Each clump's cards draw from randoms of its own, so a change to one
+      // clump never moves another's. Their tilts draw from their own, so the
+      // rest of the scatter doesn't depend on how many draws a tilt takes,
+      // and so do their orders through the age
+      const seed = params.seed + c * 7919
+      const random = mulberry32(seed + 104729)
+      const tiltRandom = mulberry32(seed + 15485863)
+      const orderRandom = mulberry32(seed + 32452843)
+      const tintRandom = mulberry32(seed + 49979687)
       // Turn each clump's pattern randomly, so no two clumps line up
       turn.setFromEuler(euler.set(random() * 6.28, random() * 6.28, random() * 6.28))
       const clumpOrder = orderRandom()
@@ -457,31 +472,39 @@ export function createFoliage() {
         const twist = spin(lean, random(), hanging)
         const chance = THREE.MathUtils.lerp(orderRandom(), clumpOrder, BY_CLUMP)
 
-        const mayHide = !params.keepBuried && buried(p, near[c])
+        const burial = params.keepBuried ? 0 : buried(p, near[c])
 
         // AO: how much light gets in along rays round the normal, within
-        // reach. A clump wholly behind the card or out of reach stops none
-        // of them, so it's left out before they're cast
+        // reach, each neighbour by its weight. A clump wholly behind the card
+        // or out of reach stops none of them, so it's left out before
+        // they're cast
+        const weights = near[c].weights
         blocking.length = 0
-        for (const o of near[c]) {
+        near[c].forEach((o, k) => {
           ray.subVectors(o.position, p)
-          if (ray.dot(normal) > -o.bound && ray.length() - o.bound < reach) blocking.push(o)
-        }
+          if (weights[k] > 0 && ray.dot(normal) > -o.bound && ray.length() - o.bound < reach) blocking.push(k)
+        })
         toNormal.setFromUnitVectors(UP, normal)
         let open = 0
         for (const hemisphere of AO_DIRECTIONS) {
           ray.copy(hemisphere).applyQuaternion(toNormal)
           let through = 0
-          for (const o of blocking) through += chord(p, ray, o.position, o.radius, reach, o.flatten) / o.radius
+          for (const k of blocking) {
+            const o = near[c][k]
+            through += (weights[k] * chord(p, ray, o.position, o.radius, reach, o.flatten)) / o.radius
+          }
           open += Math.exp(-LEAF_DENSITY * through)
         }
 
-        if (mayHide && open / AO_RAYS < HIDDEN) continue
+        // Hidden as far as it's both buried and dark, fading in as it comes
+        // out of either
+        const dark = 1 - THREE.MathUtils.smoothstep(open / AO_RAYS, HIDDEN, HIDDEN * (1 + FADE_IN))
+        const shown = 1 - burial * dark
 
         // Its order through the age: the more open, the sooner it turns
         const order = THREE.MathUtils.lerp(chance, 1 - open / AO_RAYS, BY_LIGHT)
 
-        A.set([p.x, p.y, p.z, size], n * 4)
+        A.set([p.x, p.y, p.z, size * shown], n * 4)
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, twist], n * 4)
         D.set([position.x, position.y, position.z, packSwing(swing)], n * 4)
@@ -536,7 +559,7 @@ export function createFoliage() {
       // One cell of the 2 x 2 atlas per card
       const variant = Math.floor(random() * 4)
       const life = cardLife(u.age.value, cardE.array[n * E_STRIDE + 2])
-      if (life.size === 0) continue
+      if (life.size === 0 || !grown(n)) continue
       const part = life.turned >= 0.5 ? parts[2] : life.unfolded < 0.5 ? parts[1] : parts[0]
       part.cards.push({ n, variant, size: life.size, out: life.out })
     }
@@ -638,13 +661,19 @@ export function createFoliage() {
     return geometry
   }
 
+  // Whether card n is there at all: not one hidden in a neighbouring clump,
+  // nor one of a clump a young tree hasn't grown yet
+  function grown(n) {
+    return cardA.array[n * 4 + 3] * u.cardSize.value > SMALLEST_CARD
+  }
+
   // Each card still on the tree at its age, and its size and how far out
   // it sits for it
   function onTree() {
     const on = []
     for (let n = 0; n < mesh.count; n++) {
       const { size, out } = cardLife(u.age.value, cardE.array[n * E_STRIDE + 2])
-      if (size > 0) on.push({ n, size, out })
+      if (size > 0 && grown(n)) on.push({ n, size, out })
     }
     return on
   }
@@ -653,8 +682,10 @@ export function createFoliage() {
   // size, a young one counting for less, over all the cards it grew. Its
   // leaves' age takes it down as they drop
   function leafiness() {
-    if (!mesh.count) return 0
-    return onTree().reduce((sum, { size }) => sum + size, 0) / mesh.count
+    let all = 0
+    for (let n = 0; n < mesh.count; n++) if (grown(n)) all++
+    if (!all) return 0
+    return onTree().reduce((sum, { size }) => sum + size, 0) / all
   }
 
   // How many vertices bake gives: every card's own, none shared
@@ -788,17 +819,21 @@ function spin(facing, random, hanging) {
 // Each clump's nearest neighbours that could occlude its cards: within reach,
 // by the gap between their surfaces, at most AO_NEIGHBOURS. Each pair is
 // measured once, for both. Each clump keeps its nearest in order as they're
-// offered, which is by index, a tie going to the one offered first
+// offered, which is by index, a tie going to the one offered first. Each
+// counts for less the nearer it is to being left out, by reach or by the
+// one past the last, in its weights, so a neighbour moving in or out of
+// them changes nothing at once
 function nearestClumps(clumps, reach) {
+  const kept = AO_NEIGHBOURS + 1 // and one past them, to weigh the last against
   const near = clumps.map(() => [])
   const nearGaps = clumps.map(() => [])
   function offer(i, o, gap) {
     if (gap >= clumps[i].radius * 0.05 + reach) return
     const nearest = near[i]
     const gaps = nearGaps[i]
-    const full = nearest.length === AO_NEIGHBOURS
-    if (full && gap >= gaps[AO_NEIGHBOURS - 1]) return
-    let k = full ? AO_NEIGHBOURS - 1 : nearest.length
+    const full = nearest.length === kept
+    if (full && gap >= gaps[kept - 1]) return
+    let k = full ? kept - 1 : nearest.length
     for (; k > 0 && gaps[k - 1] > gap; k--) {
       gaps[k] = gaps[k - 1]
       nearest[k] = nearest[k - 1]
@@ -815,6 +850,12 @@ function nearestClumps(clumps, reach) {
       offer(j, c, distance - o.radius - c.radius)
     }
   }
+  near.forEach((nearest, i) => {
+    const gaps = nearGaps[i]
+    const out = Math.min(clumps[i].radius * 0.05 + reach, nearest.length === kept ? gaps[kept - 1] : Infinity)
+    nearest.length = Math.min(nearest.length, AO_NEIGHBOURS)
+    nearest.weights = nearest.map((_, k) => THREE.MathUtils.clamp((out - gaps[k]) / (reach * NEIGHBOUR_FADE), 0, 1))
+  })
   return near
 }
 
@@ -834,17 +875,21 @@ const AO_DIRECTIONS = Array.from({ length: AO_RAYS }, (_, i) => {
   return new THREE.Vector3(r * Math.cos(angle), Math.sqrt(1 - r * r), r * Math.sin(angle))
 })
 
-// Whether a point is buried deep inside one of a clump's neighbours, each a
-// sphere squashed upright by its flatten. Overlapping ones are always among
-// the neighbours, the nearest by the gap between their surfaces
+// How buried a point is in a clump's neighbours, each a sphere squashed
+// upright by its flatten, 0 to 1: 1 deep inside one, easing to 0 on the
+// way out to BURIED of its radius, so a card a growing clump moves out of
+// it comes back gradually. Overlapping ones are always among the
+// neighbours, the nearest by the gap between their surfaces
 function buried(point, neighbours) {
-  for (const { position, radius, flatten } of neighbours) {
+  let most = 0
+  neighbours.forEach(({ position, radius, flatten }, k) => {
     const x = point.x - position.x
     const y = (point.y - position.y) / flatten
     const z = point.z - position.z
-    if (x * x + y * y + z * z < (BURIED * radius) ** 2) return true
-  }
-  return false
+    const depth = Math.sqrt(x * x + y * y + z * z) / (BURIED * radius)
+    most = Math.max(most, neighbours.weights[k] * (1 - THREE.MathUtils.smoothstep(depth, 1 - FADE_IN, 1)))
+  })
+  return most
 }
 
 // How far a ray from origin along dir, out to reach, runs inside the
