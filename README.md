@@ -297,6 +297,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | views a side | 6, 8 or 12 views a side of the atlas |
 | atlas size | the atlas's width and height, from 512 to 8192 pixels |
 | each view, on the GPU | read-outs: how many pixels each view gets, and how much GPU memory the atlas takes with its mipmaps |
+| shadow | adds the impostor's shadow, a quad on the ground under it |
 | export | saves the impostor as a GLB |
 
 </details>
@@ -360,7 +361,7 @@ The thresholds are tuned to the app's lighting. Match it, or the bands
 shift:
 
 ```js
-renderer.toneMapping = THREE.NeutralToneMapping
+renderer.toneMapping = THREE.NeutralToneMapping // WebGLRenderer only, see below
 renderer.shadowMap.enabled = true
 
 const sun = new THREE.DirectionalLight('#fff3df', 5)
@@ -373,6 +374,11 @@ sun.shadow.bias = -0.0005 // avoids acne on the cards
 sun.shadow.normalBias = 0.02
 scene.add(sun, new THREE.HemisphereLight('#bfd8ff', '#6b5a45', 1))
 ```
+
+With `WebGPURenderer`, leave `toneMapping` off. It tone maps the whole
+frame in one pass at the end, which would map an impostor's pictures a
+second time, as they were drawn tone mapped, and darken them. Its
+`celShade` tone maps the tree's own materials instead, as the app does.
 
 <details>
 <summary><code>celShade</code> for <code>WebGLRenderer</code></summary>
@@ -434,7 +440,7 @@ uniform float shadeScale;`,
 
 ```js
 import * as THREE from 'three/webgpu'
-import { attribute, color, dot, float, mix, output, smoothstep, step, vec3, vec4 } from 'three/tsl'
+import { attribute, color, dot, float, mix, neutralToneMapping, output, smoothstep, step, vec3, vec4 } from 'three/tsl'
 
 const ALBEDO = 0.8 // the grey the ramp's band edges expect, lit
 const LUMA = [0.2126, 0.7152, 0.0722] // the light's brightness from its red, green and blue
@@ -444,7 +450,8 @@ const EPSILON = 1e-4 // keeps the tint from dividing by nothing in the dark
 // The cel look of Just a simple tree, for WebGPURenderer: a new material
 // for one from its GLB, where the light picks a colour from the ramp in the
 // material's extras, tinted by the light's colour, then the vertex colours
-// shade it. A material without a ramp comes back as it is
+// shade it, and it's tone mapped. A material without a ramp comes back as
+// it is
 export function celShade(oldMaterial) {
   const ramp = oldMaterial.userData.celRamp
   if (!ramp) return oldMaterial
@@ -462,7 +469,7 @@ export function celShade(oldMaterial) {
   const shade = oldMaterial.vertexColors
     ? attribute('color', 'vec3').mul(oldMaterial.userData.shadeScale ?? 1)
     : float(1)
-  material.outputNode = vec4(band.mul(tint).mul(shade), output.a)
+  material.outputNode = vec4(neutralToneMapping(band.mul(tint).mul(shade), float(1)), output.a)
   return material
 }
 ```
@@ -584,11 +591,22 @@ or 12 × 12 pictures from all over the sky above the tree. Its
   as `[left, bottom, right, top]` in metres from the centre along the
   view's right and up. Each view is cropped to the tree and stretched to
   fill its frame.
+- `sun`: the direction towards the sun that lit the pictures.
 
 Each view gets the atlas's size over the views a side, 256 pixels in a 2048
 atlas with 8, and blurs when drawn bigger than that. The panel shows this
 and the atlas's GPU memory. The sun is baked into the pictures, so leave the
-impostor unrotated and your scene's sun where the app's was.
+impostor unrotated and your scene's sun where the app's was. With
+`WebGPURenderer`, keep its `toneMapping` off, as [the cel look](#the-cel-look-in-threejs)
+says, or the pictures come out darker than the trees.
+
+With **shadow** ticked, the impostor has a child, `impostor shadow`: a
+quad lying on the ground under the tree, 2 cm above the tree's foot, with
+the tree's shadow from that sun on it, in the floor's shadow colour and
+darkness. It's the view the sun sees, from the atlas, cast onto the
+ground, in a small texture of its own, so it needs no code: any engine
+draws it as a plain unlit, alpha-blended quad, and hides it with the
+impostor. It doesn't turn, so it only fits flat ground and that sun.
 
 A plain glTF viewer shows only the view from the front. `impostor` turns
 the quad towards the camera and shows the nearest view, popping from one to
@@ -605,6 +623,9 @@ import * as THREE from 'three'
 export function impostor(mesh) {
   const { frames, radius, center, crops } = mesh.userData.impostor
   mesh.frustumCulled = false
+  // Its pictures and its shadow were drawn tone mapped: mapping them again
+  // would darken them
+  mesh.traverse((part) => part.material && (part.material.toneMapped = false))
   mesh.material.onBeforeCompile = (shader) => {
     shader.uniforms.frames = { value: frames }
     shader.uniforms.radius = { value: radius }

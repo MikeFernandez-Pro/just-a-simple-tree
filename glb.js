@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu'
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
-import { download } from './capture.js'
+import { download, impostorDirection } from './capture.js'
 import { LEAF_STOPS } from './foliage.js'
 import { IMPOSTOR } from './lod.js'
 import { BARK_STOPS } from './shading.js'
@@ -129,12 +129,16 @@ export async function exportGlb({ tree, levels, impostor, barkColors, species, s
       const node = new THREE.Group()
       node.name = `tree_LOD${levels.length}`
       const mesh = impostorMesh(impostor)
-      mesh.name = `impostor_LOD${levels.length}`
+      mesh.traverse((part) => (part.name += `_LOD${levels.length}`))
       node.add(mesh)
       node.userData = { level: levels.length, detail: 'impostor', screenCoverage: IMPOSTOR.coverage }
       nodes.push(node)
     }
-    for (const node of nodes) node.userData.vertices = node.children.reduce((sum, mesh) => sum + mesh.geometry.attributes.position.count, 0)
+    for (const node of nodes) {
+      let vertices = 0
+      node.traverse((part) => (vertices += part.geometry?.attributes.position.count ?? 0))
+      node.userData.vertices = vertices
+    }
     scene.add(...nodes)
     plugins.push((writer) => lodWriter(writer, nodes))
   } else scene.add(...(impostor ? [impostorMesh(impostor)] : meshes(tree)))
@@ -171,10 +175,12 @@ function lodWriter(writer, [first, ...others]) {
 
 // The impostor as one quad, unlit, the atlas's views on it. Its extras say
 // how the atlas is laid out, for the README's snippet, each view's crop
-// included. With no shader, it shows the front frame, (frames - 1, 0), the
-// quad its crop: that view looks along -z, its right +x and its up +y. The
-// snippet tells the quad's corners apart by their UVs
-export function impostorMesh({ atlas, frames, crops, center, radius }) {
+// included, and where the sun was that lit it. With no shader, it shows the
+// front frame, (frames - 1, 0), the quad its crop: that view looks along
+// -z, its right +x and its up +y. The snippet tells the quad's corners
+// apart by their UVs. With a shadow, its shadow on the ground is a quad
+// under it
+export function impostorMesh({ atlas, frames, crops, center, radius, sun, shadow }) {
   const [left, bottom, right, top] = crops[frames - 1]
   const geometry = new THREE.PlaneGeometry(right - left, top - bottom)
   geometry.translate(center.x + (left + right) / 2, center.y + (bottom + top) / 2, center.z)
@@ -185,6 +191,64 @@ export function impostorMesh({ atlas, frames, crops, center, radius }) {
   const material = new THREE.MeshBasicMaterial({ name: 'impostor', map, alphaTest: 0.5, side: THREE.DoubleSide })
   const mesh = new THREE.Mesh(geometry, material)
   mesh.name = 'impostor'
-  mesh.userData.impostor = { layout: 'hemi-octahedral', frames, radius, center: center.toArray(), crops }
+  mesh.userData.impostor = { layout: 'hemi-octahedral', frames, radius, center: center.toArray(), crops, sun: sun.toArray() }
+  if (shadow) mesh.add(shadowMesh({ atlas, frames, crops, center }, sun, shadow))
+  return mesh
+}
+
+const LOWEST_SUN = 0.1 // the least the sun's direction rises, so a low sun's shadow ends about ten heights away
+const SHADOW_LIFT = 0.02 // metres the shadow lies above the ground, so it never fights it
+
+// The impostor's shadow: a quad on the ground, under the tree, showing the
+// view in the atlas nearest the sun's direction, the tree as the sun sees
+// it. That view is laid flat through the tree's centre and cast along the
+// sunlight onto the ground: its crop's corners land there, and the quad
+// stretches the view between them, which is exact, as the view is drawn
+// with no perspective. Its texture is that view alone, white wherever the
+// tree is, and the quad is the shadow colour at its darkness, so it looks
+// as the floor's shadow does
+function shadowMesh({ atlas, frames, crops, center }, sun, { color, darkness }) {
+  const light = sun.clone().setY(Math.max(sun.y, LOWEST_SUN)).normalize()
+  const spread = Math.abs(light.x) + Math.abs(light.y) + Math.abs(light.z)
+  const [px, pz] = [light.x / spread, light.z / spread]
+  const nearest = (value) => THREE.MathUtils.clamp(Math.floor((value * 0.5 + 0.5) * (frames - 1) + 0.5), 0, frames - 1)
+  const [i, j] = [nearest(px + pz), nearest(px - pz)]
+  const { direction, up } = impostorDirection(i, j, frames)
+  const right = up.clone().cross(direction)
+  const [left, bottom, far, top] = crops[j * frames + i]
+  const corner = (across, high) => {
+    const point = center.clone().addScaledVector(right, across).addScaledVector(up, high)
+    return point.addScaledVector(light, -point.y / light.y).setY(SHADOW_LIFT)
+  }
+  const corners = [corner(left, bottom), corner(far, bottom), corner(far, top), corner(left, top)]
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(corners.flatMap((point) => point.toArray()), 3))
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute([0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], 3))
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2))
+  // Wound to face up, whichever way round the corners landed
+  const facesUp = new THREE.Vector3().subVectors(corners[1], corners[0]).cross(new THREE.Vector3().subVectors(corners[2], corners[0])).y > 0
+  geometry.setIndex(facesUp ? [0, 1, 2, 0, 2, 3] : [0, 2, 1, 0, 3, 2])
+  // The view copied out of the atlas, whose frame (i, j) counts up from
+  // its bottom, and made white, keeping its alpha
+  const frame = atlas.width / frames
+  const size = Math.ceil(frame)
+  const canvas = document.createElement('canvas')
+  canvas.width = canvas.height = size
+  const context = canvas.getContext('2d')
+  context.drawImage(atlas, i * frame, (frames - 1 - j) * frame, frame, frame, 0, 0, size, size)
+  context.globalCompositeOperation = 'source-in'
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, size, size)
+  // With no mipmaps: seen along the ground, they'd average the shadow
+  // with the clear round it and fade it
+  const map = new THREE.CanvasTexture(canvas)
+  map.colorSpace = THREE.SRGBColorSpace
+  map.generateMipmaps = false
+  map.minFilter = THREE.LinearFilter
+  const material = new THREE.MeshBasicMaterial({ name: 'impostor shadow', color, map, transparent: true, opacity: darkness, depthWrite: false })
+  material.polygonOffset = true
+  material.polygonOffsetFactor = material.polygonOffsetUnits = -1
+  const mesh = new THREE.Mesh(geometry, material)
+  mesh.name = 'impostor shadow'
   return mesh
 }

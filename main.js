@@ -697,6 +697,7 @@ const exportParams = {
   spriteElevation: 10, // degrees above level
   impostorFrames: "8",
   impostorAtlas: "2048",
+  impostorShadow: true, // a quad on the ground under it, with its shadow
   lodLevels: LEVELS.length, // tree + LODs': the tree and its lighter copies, all of them
   lodImpostor: true, // and the impostor after them, as its own folder makes it
 };
@@ -711,11 +712,13 @@ const capture = createCapture({
   loop: frame,
   scenery: [ground, grass.mesh, falling.mesh],
   tree: [tree, wireframe, foliage.mesh, foliage.clumps],
+  draw: () => shake.draw(performance.now(), () => renderer.render(scene, camera)),
 });
 const fileName = (kind, extension) =>
   `${params.species}-${params.seed}${kind ? `-${kind}` : ""}.${extension}`;
 // An impostor's atlas, frames views a side in size pixels a side, each
-// view cropped to the tree
+// view cropped to the tree, and the sun that lit it. Its shadow, if it's
+// wanted, is in the floor's colour and darkness
 async function impostorOf(frames, size) {
   const sphere = bounds(tree.geometry, foliage);
   frames = Number(frames);
@@ -730,6 +733,10 @@ async function impostorOf(frames, size) {
     crops,
     center: sphere.center,
     radius: sphere.radius,
+    sun: sunDirection.value.clone(),
+    shadow: exportParams.impostorShadow
+      ? { color: shadowColor.value.clone(), darkness: shadowDarkness.value }
+      : null,
   };
 }
 // An impostor drawn from the tree grown at a level of detail, and the tree
@@ -1170,7 +1177,9 @@ function showLevelCounts() {
       : i < exportParams.lodLevels;
     if (shown) row.show();
     else row.hide();
-    const count = impostor ? 4 : levelCounts[i];
+    const count = impostor
+      ? 4 * (exportParams.impostorShadow ? 2 : 1)
+      : levelCounts[i];
     value.textContent =
       count === undefined || (levelsStale && !impostor)
         ? "…"
@@ -1246,6 +1255,10 @@ const impostorNote = atlasNote(
 );
 impostorFramesControl.onChange(impostorNote.update);
 impostorAtlasControl.onChange(impostorNote.update);
+impostorFolder
+  .add(exportParams, "impostorShadow")
+  .name("shadow")
+  .onChange(showLevelCounts);
 exportButton(impostorFolder, "impostor");
 
 // Every control a theme sets, and its value in a theme. The page starts in
@@ -1323,6 +1336,7 @@ if (import.meta.env.DEV) {
       scene,
       levelCount: () => exportParams.lodLevels,
       impostorWanted: () => exportParams.lodImpostor,
+      shadowWanted: () => exportParams.impostorShadow,
       showLevel: (level) => {
         if (level === shownLevel) return;
         shownLevel = level;

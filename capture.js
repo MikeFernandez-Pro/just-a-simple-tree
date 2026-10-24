@@ -9,14 +9,16 @@ import { burst, growth } from './regenerate.js'
 // on its own: no floor, grass or falling leaves. Each view is drawn at twice
 // its size, while that stays within MAX_DRAWN, and copied straight off the
 // canvas into a 2D one, smoothed down, so the alpha-cut leaves come out
-// clean. The lighting is the sun's at the time, baked in
+// clean. The lighting is the sun's at the time, baked in. Meanwhile the
+// screen holds the last frame drawn, so the views never flash up on it
 
 const MAX_DRAWN = 4096 // the most pixels a side the canvas is drawn at
 const BATCH = 8 // views drawn before the browser gets a moment, so the GPU's watchdog never trips
 export const MAX_ATLAS = 4096 // the most pixels a side of a sprite sheet
 const CROP_MARGIN = 0.02 // room left round the tree in an impostor's view, a share of its width and height
 
-export function createCapture({ renderer, scene, loop, scenery, tree }) {
+// draw draws a frame as the render loop does
+export function createCapture({ renderer, scene, loop, scenery, tree, draw }) {
   // Draws each camera's view into its place in a 2D context: at(i) gives
   // the top left corner of the i-th, and its size if it isn't width x
   // height pixels
@@ -39,9 +41,24 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
     }
   }
 
+  // A frame drawn and held over the canvas while the views are drawn on it,
+  // and a function taking it off once the loop has drawn again. It goes
+  // first in the page, over the canvas but under everything else on it
+  function hold() {
+    const canvas = renderer.domElement
+    const held = canvasOf(canvas.width, canvas.height)
+    draw()
+    held.getContext('2d').drawImage(canvas, 0, 0)
+    const { left, top, width, height } = canvas.getBoundingClientRect()
+    Object.assign(held.style, { position: 'fixed', left: `${left}px`, top: `${top}px`, width: `${width}px`, height: `${height}px`, pointerEvents: 'none' })
+    document.body.prepend(held)
+    return () => requestAnimationFrame(() => requestAnimationFrame(() => held.remove()))
+  }
+
   // The scene made still for drawing, and a function putting it back
   function still({ transparent, bare }) {
     renderer.setAnimationLoop(null)
+    const release = hold()
     const saved = {
       pixelRatio: renderer.getPixelRatio(),
       clear: renderer.getClearColor(new THREE.Color()),
@@ -74,6 +91,7 @@ export function createCapture({ renderer, scene, loop, scenery, tree }) {
       renderer.setPixelRatio(saved.pixelRatio)
       renderer.setSize(innerWidth, innerHeight)
       renderer.setAnimationLoop(loop)
+      release()
     }
   }
 

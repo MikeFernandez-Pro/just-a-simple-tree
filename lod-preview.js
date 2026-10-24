@@ -3,6 +3,7 @@ import { abs, cameraPosition, cross, float, floor, modelWorldMatrixInverse, norm
 import { Item } from 'three/addons/inspector/ui/Item.js'
 import { createValueSpan } from 'three/addons/inspector/ui/utils.js'
 import { IMPOSTOR, LEVELS } from './lod.js'
+import { shadowColor, shadowDarkness, sunDirection } from './shading.js'
 
 // The levels of detail, seen live while the app is being worked on, in a
 // LOD preview section of the panel that only `pnpm dev` has, out of the
@@ -11,6 +12,7 @@ import { IMPOSTOR, LEVELS } from './lod.js'
 // of the screen the tree takes. Off the tree as it is, the camera is let out
 // far enough to see the tree as small as the last level shows it. The share
 // is always read out, to set each level's against.
+// Until the impostor is drawn, the last level stands in for it.
 // Each level's settings are sliders, editing LEVELS in place, and copy
 // levels writes them out to paste back into lod.js
 
@@ -31,12 +33,13 @@ const TUNING = {
 }
 const BY_SHARE = 'by screen share'
 
-// levelCount and impostorWanted give the export's levels; showLevel(level)
+// levelCount and impostorWanted give the export's levels, and shadowWanted
+// whether its impostor has a shadow; showLevel(level)
 // grows the tree at a level, tuned(level) says a level's settings changed;
 // fullBounds gives the sphere round the tree as it is; setTreeVisible shows
 // or hides it; captureImpostor(level) draws the impostor's quad from the
 // tree grown at a level; changedAt gives when the tree last changed
-export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt }) {
+export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, shadowWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt }) {
   const section = inspector.createParameters('LOD preview')
   const state = { show: 'the tree' }
   const choices = ['the tree', ...LEVELS.map((_, i) => `LOD${i}`), 'impostor', BY_SHARE]
@@ -63,6 +66,10 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
   let impostor = null
   let impostorAt = -Infinity // when the tree had last changed as the impostor was drawn
   let impostorFrom = -1 // the level it was drawn from, the export's last
+  let impostorLit = '' // the sun and shadow it was drawn with
+  let lit = '' // the sun and shadow now, and when they last changed
+  let litAt = 0
+  const lighting = () => [...sunDirection.value.toArray(), shadowColor.value.getHex(), shadowDarkness.value, shadowWanted()].join()
   let capturing = false
   let suspended = false
   let far = null // the camera's own far plane and farthest zoom, while they're let out
@@ -88,14 +95,15 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
   function show(what) {
     if (what === showing) return
     showing = what
-    showLevel(typeof what === 'number' ? what : 0)
+    showLevel(typeof what === 'number' ? what : levelCount() - 1)
     apply()
   }
 
-  // Whichever of the tree and the impostor is to be seen
+  // Whichever of the tree and the impostor is to be seen, the tree standing
+  // in for the impostor until it's drawn
   function apply() {
     if (suspended) return
-    const tree = typeof showing === 'number'
+    const tree = typeof showing === 'number' || (showing === 'impostor' && !impostor)
     setTreeVisible(tree)
     if (impostor) impostor.visible = showing === 'impostor'
   }
@@ -119,8 +127,10 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     shareText.textContent = share.toFixed(3)
     if (state.show === BY_SHARE) show(levelFor(share))
     showingText.textContent = typeof showing === 'number' ? `LOD${showing}` : showing
-    const stale = changedAt() > impostorAt || impostorFrom !== levelCount() - 1
-    if (showing === 'impostor' && stale && !capturing && performance.now() - changedAt() > IMPOSTOR_AFTER) drawImpostor()
+    if (lighting() !== lit) [lit, litAt] = [lighting(), performance.now()]
+    const stale = changedAt() > impostorAt || impostorFrom !== levelCount() - 1 || impostorLit !== lit
+    const settled = performance.now() - Math.max(changedAt(), litAt) > IMPOSTOR_AFTER
+    if (showing === 'impostor' && stale && settled && !capturing) drawImpostor()
   }
 
   // The impostor drawn afresh while it's seen, from the export's last
@@ -129,15 +139,18 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     capturing = true
     impostorAt = changedAt()
     impostorFrom = levelCount() - 1
+    impostorLit = lit
     suspend()
     try {
       const mesh = await captureImpostor(impostorFrom)
       faceCamera(mesh)
       if (impostor) {
         scene.remove(impostor)
-        impostor.geometry.dispose()
-        impostor.material.map?.dispose()
-        impostor.material.dispose()
+        impostor.traverse((part) => {
+          part.geometry.dispose()
+          part.material.map?.dispose()
+          part.material.dispose()
+        })
       }
       impostor = mesh
       scene.add(impostor)
