@@ -156,6 +156,7 @@ const params = {
   crookedness: 0.34,
   sides: 10,
   smoothness: 1,
+  twigs: 5, // twigs grown into a leaf clump of average size, for its leaves to hang from
   variety: 1, // how far each seed's own character takes its tree from its species' average
   cardsPerClump: 35,
   clumpSize: 1, // scales every leaf clump, and its cards with it
@@ -299,12 +300,32 @@ function rebuildIfWanted() {
   else if (rescatter) scatterLeaves();
 }
 
+// Evenness takes every clump's radius towards one size for them all, the
+// one that keeps their total area: 0 leaves them as they grew, 1 makes them
+// all that size
+function evenOut(clumps, evenness) {
+  const even = Math.sqrt(
+    clumps.reduce((sum, c) => sum + c.radius * c.radius, 0) /
+      Math.max(clumps.length, 1),
+  );
+  for (const clump of clumps)
+    clump.radius = THREE.MathUtils.lerp(clump.radius, even, evenness);
+}
+
 let grown;
 function rebuild() {
-  grown = SPECIES[params.species].grow(params);
-  // Each clump swings with the wood nearest it
+  const species = SPECIES[params.species];
+  grown = species.grow(params);
+  evenOut(grown.clumps, params.clumpEvenness);
+  // Each clump swings with the wood nearest it, and has twigs grown into
+  // it, for its leaves to hang from
   for (const clump of grown.clumps)
     clump.swing = grown.geometry.userData.swayAt(clump.position);
+  if (!species.woodless)
+    grown.geometry = grown.geometry.userData.withTwigs(
+      grown.clumps,
+      params.twigs,
+    );
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
@@ -466,6 +487,7 @@ const SHAPE_SLIDERS = {
   splitScatter: { min: 0, max: 1, name: "split scatter" },
   sides: { min: 3, max: 24, step: 1 },
   smoothness: { min: 1, max: 8, step: 1 },
+  twigs: { min: 0, max: 12, step: 1 },
   variety: { min: 0, max: 1 },
 };
 const shapeControls = {};
@@ -489,6 +511,7 @@ const woodControls = [
   "baseFlare",
   "sides",
   "smoothness",
+  "twigs",
 ].map((key) => shapeControls[key]);
 function showSpecies() {
   const {
@@ -750,7 +773,7 @@ leafSection
 // The clumps the cards are scattered over, one on each free branch tip:
 // clump size grows them all, and bigger clumps get more cards. Evenness
 // takes them all towards one size, keeping their total area, without
-// regrowing the tree
+// reshaping the branches, but with the twigs grown again to fit them
 const clumps = leafSection.addFolder("clumps");
 speciesSetting(
   "clumpSize",
@@ -762,7 +785,7 @@ speciesSetting(
 clumps
   .add(params, "clumpEvenness", 0, 1)
   .name("evenness")
-  .onChange(requestLeaves);
+  .onChange(requestRebuild);
 speciesSetting(
   "cardsPerClump",
   clumps

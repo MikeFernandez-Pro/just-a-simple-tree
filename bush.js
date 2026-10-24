@@ -55,7 +55,9 @@ function grow(params) {
     const reach = width * out * (0.85 + random() * 0.3) * lopsided(around, side, heavy)
     const radius = height * THREE.MathUtils.lerp(MIDDLE, EDGE, out) * (0.85 + random() * 0.3) * params.clumpSize
     const position = new THREE.Vector3(Math.cos(around) * reach, radius * SINK, Math.sin(around) * reach)
-    clumps.push({ position, radius, birth: out })
+    // With no wood to hang from, its young leaves gather at its foot
+    const foot = position.clone().setY(0)
+    clumps.push({ position, radius, birth: out, foot })
   }
 
   return { geometry, clumps }

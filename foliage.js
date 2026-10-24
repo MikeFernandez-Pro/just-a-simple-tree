@@ -11,6 +11,7 @@ import {
   hash,
   instanceIndex,
   instancedBufferAttribute,
+  instancedDynamicBufferAttribute,
   min,
   mix,
   normalGeometry,
@@ -44,6 +45,7 @@ import { holographic, updated } from './hologram.js'
 // Their ambient occlusion is worked out per card on the CPU.
 
 const CAPACITY = 1 << 16 // most cards we'll ever draw
+const E_STRIDE = 8 // numbers per card in its last buffer: its E, then the point it hangs from
 const CARD_RATIO = 1.8 // card width / clump radius
 const TILT = 0.6 // how far a card leans off its clump's surface, at most
 const AO_RAYS = 12 // rays per card, cosine-weighted round its normal
@@ -107,6 +109,7 @@ function clumpTintNode(packed, variation) {
 const SUMMER = 0.35 // the age the page starts at: every card full grown, none turned
 const FLUSH = 0.25 // the age by which every card has unfolded
 const YOUNG_SIZE = 0.4 // a card's size at age 0 / its full size
+const YOUNG_REACH = 0.3 // how far out a card sits at age 0 / from the twig it hangs from to its place
 const YOUNG_PALE = 0.55 // how far a young card's colours go towards a pale light
 const PALE_LIGHT = 0.3 // how far that pale light is lifted from the light colour towards white
 const TURN_FROM = 0.45 // the age the first cards start turning
@@ -119,8 +122,10 @@ const SHED = 8 // how much faster leaves fall while the tree drops them
 const DROP_FROM = TURN_FROM + DROP_AFTER // the age the first cards start dropping
 
 // Where a card is in its life at an age, from its order: how far it has
-// unfolded, turned and dropped, and its size for those, as numbers. The
-// last card has dropped by age 0.99
+// unfolded, turned and dropped, its size for those, and how far out it sits,
+// from the nearest point on its clump's twigs to its place, as numbers. A
+// young card sits close in on its twig, so it never floats off it, and
+// moves out as it unfolds. The last card has dropped by age 0.99
 function cardLife(age, order) {
   const { lerp, smoothstep } = THREE.MathUtils
   const unfoldAt = order * (FLUSH - CHANGE)
@@ -128,7 +133,7 @@ function cardLife(age, order) {
   const unfolded = smoothstep(age, unfoldAt, unfoldAt + CHANGE)
   const turned = smoothstep(age, turnAt, turnAt + CHANGE)
   const dropped = smoothstep(age, turnAt + DROP_AFTER, turnAt + DROP_AFTER + CHANGE)
-  return { unfolded, turned, dropped, size: lerp(YOUNG_SIZE, 1, unfolded) * (1 - dropped) }
+  return { unfolded, turned, dropped, size: lerp(YOUNG_SIZE, 1, unfolded) * (1 - dropped), out: lerp(YOUNG_REACH, 1, unfolded) }
 }
 
 // The same in the shader, from nodes
@@ -139,7 +144,13 @@ function cardLifeNode(age, order) {
   const unfolded = smoothstep(unfoldAt, unfoldAt.add(CHANGE), age)
   const turned = smoothstep(turnAt, turnAt.add(CHANGE), age)
   const dropped = smoothstep(dropAt, dropAt.add(CHANGE), age)
-  return { unfolded, turned, dropped, size: mix(float(YOUNG_SIZE), float(1), unfolded).mul(dropped.oneMinus()) }
+  return {
+    unfolded,
+    turned,
+    dropped,
+    size: mix(float(YOUNG_SIZE), float(1), unfolded).mul(dropped.oneMinus()),
+    out: mix(float(YOUNG_REACH), float(1), unfolded),
+  }
 }
 
 // A young card's colour band: paler, towards the light colour lifted
@@ -170,12 +181,14 @@ export function createFoliage() {
   // swing in the wind, packed;
   // how far along the wood from the ground its clump is, how far below
   // where it hangs from the card is, and its order through the age; its
-  // clump's tint draws, packed
+  // clump's tint draws, packed; and the nearest point on its clump's twigs,
+  // which it hangs from. Those last two share one buffer, E's four numbers
+  // then the point's, as WebGPU gives the cards no room for another
   const cardA = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardB = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardC = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
   const cardD = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
-  const cardE = new THREE.InstancedBufferAttribute(new Float32Array(CAPACITY * 4), 4)
+  const cardE = new THREE.InstancedInterleavedBuffer(new Float32Array(CAPACITY * E_STRIDE), E_STRIDE)
   const cardAttributes = [cardA, cardB, cardC, cardD, cardE]
   for (const attribute of cardAttributes) attribute.setUsage(THREE.DynamicDrawUsage)
 
@@ -210,7 +223,8 @@ export function createFoliage() {
   const b = instancedBufferAttribute(cardB)
   const c = instancedBufferAttribute(cardC)
   const d = instancedBufferAttribute(cardD)
-  const e = instancedBufferAttribute(cardE)
+  const e = instancedDynamicBufferAttribute(cardE, 'vec4', E_STRIDE, 0)
+  const twig = instancedDynamicBufferAttribute(cardE, 'vec4', E_STRIDE, 4).xyz
   const center = a.xyz
   const life = cardLifeNode(u.age, e.z)
 
@@ -248,8 +262,8 @@ export function createFoliage() {
     // A new tree: the card pops in once its branch has grown there, and a
     // burst blows it away downwind, tumbling and shrinking as it goes. While
     // it blows away it keeps its size, as the wood folds back under it. Its
-    // age sizes it too: small while it unfolds, shrinking to nothing as it
-    // drops
+    // age sizes it too: small while it unfolds, close in on its twig, moving
+    // out to its place as it grows, and shrinking to nothing as it drops
     const jitter = hash(instanceIndex.add(5))
     const size = burst.greaterThan(0).select(float(1), grownLeaf(e.x, jitter))
     const card = mix(flat, wrapped, u.roundness).sub(center)
@@ -261,7 +275,7 @@ export function createFoliage() {
       .add(vec3(0, -3, 0).mul(burst.mul(burst)))
     const tumbled = rotate(card, vec3(burst.mul(jitter.mul(12)), burst.mul(7), 0))
     const left = float(1).sub(burst.remap(0.6, 1).clamp(0, 1))
-    const placed = clump.add(center.sub(clump).mul(size))
+    const placed = clump.add(mix(twig, center, life.out).sub(clump).mul(size))
     return placed.add(blown).add(tumbled.mul(size.mul(left).mul(life.size))).add(sway(center, e.y, unpackSwing(d.w)))
   })()
 
@@ -361,19 +375,13 @@ export function createFoliage() {
 
   // Scatter cards evenly over every clump's surface, and work out their AO.
   // A clump not flattened has a flatten of 1, one that hangs knows it, and
-  // each knows how far it reaches, its radius stretched upright by it.
-  // Evenness takes every clump's radius towards one size for them all, the
-  // one that keeps their total area: 0 leaves them as they grew, 1 makes
-  // them all that size
+  // each knows how far it reaches, its radius stretched upright by it
   function update(grownClumps, params) {
-    const evenness = params.clumpEvenness
-    if (known.grown !== grownClumps || known.evenness !== evenness) {
-      const even = Math.sqrt(grownClumps.reduce((sum, c) => sum + c.radius * c.radius, 0) / Math.max(grownClumps.length, 1))
+    if (known.grown !== grownClumps) {
       const clumps = grownClumps.map(({ flatten = 1, ...clump }) => {
-        const radius = THREE.MathUtils.lerp(clump.radius, even, evenness)
-        return { ...clump, radius, flatten, hanging: clump.hangFrom !== undefined, bound: radius * Math.max(flatten, 1) }
+        return { ...clump, flatten, hanging: clump.hangFrom !== undefined, bound: clump.radius * Math.max(flatten, 1) }
       })
-      known = { grown: grownClumps, evenness, clumps }
+      known = { grown: grownClumps, clumps }
       const box = new THREE.Box3()
       const corner = new THREE.Vector3()
       for (const { position, radius } of clumps) {
@@ -413,6 +421,7 @@ export function createFoliage() {
     const lean = new THREE.Vector3()
     const ray = new THREE.Vector3()
     const p = new THREE.Vector3()
+    const hangsFrom = new THREE.Vector3()
     const euler = new THREE.Euler()
     const blocking = []
     let n = 0
@@ -422,8 +431,10 @@ export function createFoliage() {
     // instead. One that hangs, from the height hangFrom, turns its cards so
     // their leaves point down, and swings in the wind from there. A card
     // that's hidden is left out, once it has drawn all its randoms, so
-    // leaving it out never moves the cards after it
-    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth, swing = NO_SWING }, c) => {
+    // leaving it out never moves the cards after it. Each card hangs from
+    // the nearest point on its clump's twigs, or, if it has none, from its
+    // foot on the ground, or its centre
+    clumps.forEach(({ position, radius, flatten, hangFrom, hanging, birth, swing = NO_SWING, twigs = [], foot = position }, c) => {
       const cards = Math.max(1, Math.round((params.cardsPerClump * radius * radius) / meanArea))
       // Turn each clump's pattern randomly, so no two clumps line up
       turn.setFromEuler(euler.set(random() * 6.28, random() * 6.28, random() * 6.28))
@@ -474,7 +485,9 @@ export function createFoliage() {
         B.set([normal.x, normal.y, normal.z, open / AO_RAYS], n * 4)
         C.set([lean.x, lean.y, lean.z, twist], n * 4)
         D.set([position.x, position.y, position.z, packSwing(swing)], n * 4)
-        cardE.array.set([birth, liftBelow(hangFrom, p.y), order, tint], n * 4)
+        if (twigs.length) nearestOnTwigs(p, position, twigs, hangsFrom)
+        else hangsFrom.copy(foot)
+        cardE.array.set([birth, liftBelow(hangFrom, p.y), order, tint, hangsFrom.x, hangsFrom.y, hangsFrom.z, 0], n * E_STRIDE)
         n++
       }
     })
@@ -522,10 +535,10 @@ export function createFoliage() {
     for (let n = 0; n < mesh.count; n++) {
       // One cell of the 2 x 2 atlas per card
       const variant = Math.floor(random() * 4)
-      const life = cardLife(u.age.value, cardE.array[n * 4 + 2])
+      const life = cardLife(u.age.value, cardE.array[n * E_STRIDE + 2])
       if (life.size === 0) continue
       const part = life.turned >= 0.5 ? parts[2] : life.unfolded < 0.5 ? parts[1] : parts[0]
-      part.cards.push({ n, variant, size: life.size })
+      part.cards.push({ n, variant, size: life.size, out: life.out })
     }
     return {
       parts: parts
@@ -536,7 +549,17 @@ export function createFoliage() {
     }
   }
 
-  // Some of the cards, each { n, variant, size }, as one geometry
+  // Where card n sits, a share out of the way from the point on its twigs
+  // it hangs from to its place, into target, as the shader places it
+  const resting = new THREE.Vector3()
+  function hungAt(n, out, target) {
+    const E = cardE.array
+    return target
+      .set(E[n * E_STRIDE + 4], E[n * E_STRIDE + 5], E[n * E_STRIDE + 6])
+      .lerp(resting.fromArray(cardA.array, n * 4), out)
+  }
+
+  // Some of the cards, each { n, variant, size, out }, as one geometry
   function bakeCards(baked, plane, shadeScale) {
     const corners = plane.attributes.position.count
     const count = baked.length
@@ -559,10 +582,12 @@ export function createFoliage() {
     const wrapped = new THREE.Vector3()
     const normal = new THREE.Vector3()
     const side = new THREE.Vector3()
+    const hung = new THREE.Vector3()
 
     for (let k = 0; k < count; k++) {
-      const { n, variant, size: aged } = baked[k]
+      const { n, variant, size: aged, out } = baked[k]
       center.fromArray(A, n * 4)
+      hungAt(n, out, hung)
       facing.fromArray(C, n * 4)
       clump.fromArray(D, n * 4)
       normal.fromArray(B, n * 4).normalize()
@@ -580,7 +605,7 @@ export function createFoliage() {
       const aoTerm = Math.min(B[n * 4 + 3] ** 2.7 * 7.6, 1) * AO_BOOST
       const shade =
         (THREE.MathUtils.lerp(1, gradient, u.shadowSide.value) * THREE.MathUtils.lerp(1, aoTerm, u.ao.value)) / shadeScale
-      const tint = clumpTint(cardE.array[n * 4 + 3], u.variation.value).map((t) => t * shade)
+      const tint = clumpTint(cardE.array[n * E_STRIDE + 3], u.variation.value).map((t) => t * shade)
 
       const cell = [variant % 2, Math.floor(variant / 2)]
 
@@ -595,7 +620,7 @@ export function createFoliage() {
           .multiplyScalar(size)
           .add(center)
         wrapped.subVectors(flat, clump).normalize().multiplyScalar(distance).add(clump)
-        flat.lerp(wrapped, u.roundness.value).toArray(positions, i * 3)
+        flat.lerp(wrapped, u.roundness.value).sub(center).add(hung).toArray(positions, i * 3)
         normal.toArray(normals, i * 3)
         uvs[i * 2] = (plane.attributes.uv.getX(v) + cell[0]) * 0.5
         uvs[i * 2 + 1] = (plane.attributes.uv.getY(v) + cell[1]) * 0.5
@@ -613,12 +638,13 @@ export function createFoliage() {
     return geometry
   }
 
-  // Each card still on the tree at its age, and its size for it
+  // Each card still on the tree at its age, and its size and how far out
+  // it sits for it
   function onTree() {
     const on = []
     for (let n = 0; n < mesh.count; n++) {
-      const { size } = cardLife(u.age.value, cardE.array[n * 4 + 2])
-      if (size > 0) on.push({ n, size })
+      const { size, out } = cardLife(u.age.value, cardE.array[n * E_STRIDE + 2])
+      if (size > 0) on.push({ n, size, out })
     }
     return on
   }
@@ -641,7 +667,8 @@ export function createFoliage() {
   // circle inside a card, not its corners
   function reach() {
     const A = cardA.array
-    return onTree().map(({ n, size }) => [A[n * 4], A[n * 4 + 1], A[n * 4 + 2], A[n * 4 + 3] * u.cardSize.value * size * 0.5])
+    const at = new THREE.Vector3()
+    return onTree().map(({ n, size, out }) => [...hungAt(n, out, at).toArray(), A[n * 4 + 3] * u.cardSize.value * size * 0.5])
   }
 
   // The clumps themselves, hidden, but handy to see
@@ -701,11 +728,34 @@ function createClumpView(bands) {
 }
 
 // Send only an attribute's first count instances to the GPU on its next
-// upload, not the whole buffer
+// upload, not the whole buffer. An interleaved buffer has a stride where
+// an attribute has its item size
 function uploadFirst(attribute, count) {
   attribute.clearUpdateRanges()
-  attribute.addUpdateRange(0, count * attribute.itemSize)
+  attribute.addUpdateRange(0, count * (attribute.stride ?? attribute.itemSize))
   attribute.needsUpdate = true
+}
+
+// The nearest point to p on a clump's twigs, each a line through its kinks,
+// into out; the clump's centre, where they all start, if it has none
+const onStretch = new THREE.Vector3()
+const stretch = new THREE.Vector3()
+function nearestOnTwigs(p, center, twigs, out) {
+  out.copy(center)
+  let best = p.distanceToSquared(center)
+  for (const kinks of twigs) {
+    for (let k = 1; k < kinks.length; k++) {
+      stretch.subVectors(kinks[k], kinks[k - 1])
+      const t = THREE.MathUtils.clamp(stretch.dot(onStretch.subVectors(p, kinks[k - 1])) / Math.max(stretch.lengthSq(), 1e-12), 0, 1)
+      onStretch.copy(kinks[k - 1]).addScaledVector(stretch, t)
+      const distance = p.distanceToSquared(onStretch)
+      if (distance < best) {
+        best = distance
+        out.copy(onStretch)
+      }
+    }
+  }
+  return out
 }
 
 // The two axes in a card's plane before its spin, from its facing, into

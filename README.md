@@ -61,14 +61,15 @@ Actions.
 - **Leaves** are leaf cards, small flat quads with leaves painted on them,
   scattered over round leaf clumps. Each card takes its clump's normals, so
   a clump shades like one soft ball, in the hard-edged colour bands of cel
-  shading.
+  shading. Thin twigs grow into every clump for its leaves to hang from.
 - **Your own leaves**: drop an image anywhere on the page, or click
   **load image…** in the panel. A PNG with transparency is cut out along it
   and can keep its own colours (**colors from**); any other image is read as
   white leaves on black, in the theme's colours. The image is only kept in
   your browser, so a link using it shows it on your machine alone.
 - **Leaf age** runs the leaves through a year, from unfolding to a bare
-  tree, the outside of the crown turning first.
+  tree, the outside of the crown turning first. Young leaves sit small and
+  close in on their twigs, and move out as they grow.
 - **Ambient occlusion**, the darkening deep inside the crown, is worked out
   per card on the CPU, so it follows the sun and never the camera. Cards
   buried deep in a neighbouring clump are left out, saving vertices.
@@ -158,6 +159,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | split scatter | oak | how far down the trunk the limbs may leave it: at 0, all from its top |
 | sides | all with wood | sides round each branch: more smooth the cel bands' edges |
 | smoothness | all with wood | rings per kink along each branch's curve |
+| twigs | all with wood | how many twigs grow into a leaf clump for its leaves to hang from, more in a bigger one. They show while the leaves unfold, as they thin and on the bare tree |
 | variety | all | how far a seed's own character takes its tree from the species' average: at 0, the average |
 
 </details>
@@ -304,7 +306,7 @@ origin. The card in the bottom left corner shows how many vertices it will
 have. Its materials are plain `MeshStandardMaterial`s, so it opens in any
 glTF viewer or engine. Its meshes are:
 
-- **`wood`**: the branches. A bush has none.
+- **`wood`**: the branches and twigs. A bush has none.
 - **`leaves`**: alpha-masked, double-sided cards with their clumps' normals,
   the gradient and ambient occlusion baked into the vertex colours.
 - **`young leaves`** and **`turned leaves`**: the cards still unfolding or
@@ -631,7 +633,8 @@ Where to start:
 
 - `oak.js`, `pine.js`, `cypress.js`, `willow.js`, `bush.js`: each species'
   shape rules, button icon, sliders and settings.
-- `wood.js`: the branches, as tubes, for every species.
+- `wood.js`: the branches and the twigs in the leaf clumps, as tubes, for
+  every species.
 - `foliage.js`: the leaf cards, their textures and their ambient occlusion.
 - `wind.js`: the sway, each branch's swing and the leaves' flutter.
 - `shading.js`: the lights, shadows and cel colour bands.
