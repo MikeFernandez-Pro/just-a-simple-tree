@@ -68,6 +68,15 @@ export function createWood(params, random) {
   // With params.measuring, no wood is built, only how far along it the
   // farthest tip is, which is all growAged wants of a full grown tree
   let farthestEnd = 0
+  // A lighter level of detail (lod.js) leaves out the tube of any branch
+  // thinner than params.thinnest of the thickest, the trunk, made first,
+  // takes every params.ringStep-th kink for its rings, and closes its tips
+  // with params.capRings rings. The branches are all still worked out, so
+  // the clumps, the sway and the twigs' kinks stay where they were
+  let thickest = null
+  const thinnest = params.thinnest ?? 0
+  const ringStep = params.ringStep ?? 1
+  const capRings = params.capRings ?? CAP_RINGS
 
   // Turn a direction a random amount around itself, the turn's way measured
   // round it from square, a direction square to it
@@ -134,7 +143,11 @@ export function createWood(params, random) {
     }
     // One not grown yet is all at its start, where it'll sprout
     if (length < MIN_LENGTH) return { points, radii }
-    tube(points, radii, from, length, hangs ? start.y : undefined, sides, params.smoothness, CAP_RINGS, flare, flareTo, flexes, phases)
+    thickest ??= fullRadius
+    if (fullRadius >= thinnest * thickest) {
+      const [k, r, f, p] = [points, radii, flexes, phases].map((list) => everyNth(list, ringStep))
+      tube(k, r, from, length, hangs ? start.y : undefined, sides, params.smoothness, capRings, flare, flareTo, f, p)
+    } else farthestBirth = Math.max(farthestBirth, from + length)
     for (let i = 1; i < points.length; i++)
       addStretch(points[i - 1], points[i], flexes[i - 1], flexes[i], phases[i - 1], phases[i], radii[i - 1], radii[i])
     return { points, radii }
@@ -407,9 +420,10 @@ export function createWood(params, random) {
       return { geometry, farthest: geometry.userData.farthest }
     }
     const farthest = farthestBirth
+    // The most flexible tip, from the branches rather than their tubes, so
+    // a lighter level, leaving out the thinnest, sways as the full tree does
     let most = 1e-6
-    const flexes = sways.view()
-    for (let i = 0; i < flexes.length; i += 2) most = Math.max(most, flexes[i])
+    for (const { flexB } of stretches) most = Math.max(most, flexB)
     const geometry = geometryOf(farthest, most)
     const swayAt = (point, index) => {
       if (stretches.length === 0) return { flex: 1, phase: mulberry32(params.seed + 2903 + index)() * Math.PI * 2 }
@@ -495,6 +509,11 @@ function numbers(Type) {
 // within 1024 of the origin each way, 512 metres
 function cellKey(x, y, z) {
   return ((x + 1024) * 2048 + (y + 1024)) * 2048 + (z + 1024)
+}
+
+// Every step-th of a list, its last always kept
+function everyNth(list, step) {
+  return step <= 1 ? list : list.filter((_, i) => i % step === 0 || i === list.length - 1)
 }
 
 // Lean a direction away from itself by angle, on the side given by around

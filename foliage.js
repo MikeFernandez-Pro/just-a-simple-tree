@@ -290,11 +290,18 @@ export function createFoliage() {
   })()
 
   // How many squares a card is cut into; they only show once roundness
-  // bends it
+  // bends it. A lighter level of detail (lod.js) may cut them its own way,
+  // over the panel's
   let segments = 2
+  let levelSegments = null
+  const cut = () => levelSegments ?? segments
   function setSegments(count) {
     segments = count
-    mesh.geometry = cards[segments]
+    mesh.geometry = cards[cut()]
+  }
+  function setLevelSegments(count) {
+    levelSegments = count
+    mesh.geometry = cards[cut()]
   }
 
   // Alpha: the leaf cluster, clipped hard, in the shadow too. The texture
@@ -358,7 +365,7 @@ export function createFoliage() {
   // 2 x 2 is 9. The segments only matter once roundness bends it
   const cards = {}
   for (const n of [1, 2, 3, 4]) cards[n] = new THREE.PlaneGeometry(1, 1, n, n)
-  const mesh = new THREE.Mesh(cards[segments], material)
+  const mesh = new THREE.Mesh(cards[cut()], material)
   mesh.frustumCulled = false
   mesh.castShadow = true
   mesh.receiveShadow = true
@@ -413,6 +420,9 @@ export function createFoliage() {
     // the count on a clump of average size, and a young tree's clumps have
     // as many as they'll ever have, growing out with them
     const fullArea = (c) => (c.fullRadius ?? c.radius) ** 2
+    // A lighter level of detail grows its fewer cards to cover for those
+    // left out
+    const cardGrowth = params.cardGrowth ?? 1
     const meanArea = clumps.reduce((sum, c) => sum + fullArea(c), 0) / Math.max(clumps.length, 1)
 
     const A = cardA.array
@@ -468,7 +478,7 @@ export function createFoliage() {
 
         // The card lies on the clump, leaning a little off it
         randomDirection(lean, tiltRandom).multiplyScalar(TILT * random()).add(normal).normalize()
-        const size = CARD_RATIO * radius * (0.8 + random() * 0.4)
+        const size = CARD_RATIO * radius * (0.8 + random() * 0.4) * cardGrowth
         const twist = spin(lean, random(), hanging)
         const chance = THREE.MathUtils.lerp(orderRandom(), clumpOrder, BY_CLUMP)
 
@@ -543,7 +553,7 @@ export function createFoliage() {
   // turned once it has half turned, the rest as they are. One that has
   // dropped is left out, the others are at their size for their age
   function bake() {
-    const plane = cards[segments]
+    const plane = cards[cut()]
     const random = mulberry32(1)
     const brightestTint = (1 + LIGHTNESS * u.variation.value) * (1 + WARMTH * u.variation.value)
     const shadeScale = THREE.MathUtils.lerp(1, AO_BOOST, u.ao.value) * brightestTint
@@ -690,7 +700,7 @@ export function createFoliage() {
 
   // How many vertices bake gives: every card's own, none shared
   function bakedVertices() {
-    return onTree().length * cards[segments].attributes.position.count
+    return onTree().length * cards[cut()].attributes.position.count
   }
 
   // Where the cards' leaves reach with no wind: each card's centre and
@@ -715,6 +725,7 @@ export function createFoliage() {
     setLeafTexture,
     holdLeaves,
     setSegments,
+    setLevelSegments,
     bake,
     bakedVertices,
     leafiness,

@@ -36,7 +36,7 @@ import { createBar } from "./bar.js";
 import { createCodeView } from "./code-view.js";
 import { createRepoLink } from "./repo-link.js";
 import { createSound } from "./sound.js";
-import { exportGlb } from "./glb.js";
+import { exportGlb, impostorMesh } from "./glb.js";
 import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
 import { bounds, vertices } from "./bounds.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
@@ -59,6 +59,13 @@ import {
 } from "./shading.js";
 import { swayedWood, wind } from "./wind.js";
 import { growAged, MATURE } from "./tree-age.js";
+import {
+  isFull,
+  leafParams,
+  LEVELS,
+  mergedClumps,
+  woodParams,
+} from "./lod.js";
 import { positionGeometry } from "three/tsl";
 
 const renderer = new THREE.WebGPURenderer({ antialias: true });
@@ -313,9 +320,19 @@ let rebuildWanted = false;
 let leavesWanted = false;
 function requestRebuild() {
   rebuildWanted = true;
+  treeChanged();
 }
 function requestLeaves() {
   leavesWanted = true;
+  treeChanged();
+}
+// When the tree last changed, so its levels of detail are counted again a
+// moment after
+let levelsStale = true;
+let changedAt = 0;
+function treeChanged() {
+  levelsStale = true;
+  changedAt = performance.now();
 }
 function rebuildIfWanted() {
   if (held) return;
@@ -348,10 +365,20 @@ let grown;
 // tree shown has them
 let twigsBuilt = false;
 const twigsWanted = () => twigsShow(foliage.uniforms.age.value);
+// The level of detail the tree is grown at (lod.js): 0, the tree as it is,
+// unless an export or the dev preview asks for a lighter one for a moment
+let shownLevel = 0;
+function showLevel(level) {
+  shownLevel = level;
+  rebuild();
+}
 function rebuild() {
-  // The tree as far as its age has grown it
+  // The tree as far as its age has grown it, at its level of detail. A
+  // lighter level's clumps may be merged, and it grows no twigs' wood, only
+  // their kinks for the young leaves to hang from
   const species = SPECIES[params.species];
-  grown = growAged(species, params);
+  const level = LEVELS[shownLevel];
+  grown = growAged(species, woodParams(params, level));
   evenOut(grown.clumps, params.clumpEvenness);
   // A young tree's clumps are only as big as they've grown, keeping their
   // full radius for how many cards and twigs they get, so those never
@@ -365,11 +392,13 @@ function rebuild() {
   grown.clumps.forEach((clump, i) => {
     clump.swing = grown.geometry.userData.swayAt(clump.position, i);
   });
+  grown.clumps = mergedClumps(grown.clumps, level);
   twigsBuilt = twigsWanted();
   if (!species.woodless && twigsBuilt)
     grown.geometry = grown.geometry.userData.withTwigs(
       grown.clumps,
       params.twigs,
+      isFull(level),
     );
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
@@ -383,10 +412,18 @@ function rebuild() {
   scatterLeaves();
 }
 
+// The bounds of the tree as it is, last time it was scattered, for the
+// camera to frame and the dev preview to measure its share of the screen by
+let fullBounds = null;
 function scatterLeaves() {
-  foliage.update(grown.clumps, params);
+  const level = LEVELS[shownLevel];
+  foliage.setLevelSegments(isFull(level) ? null : level.segments);
+  foliage.update(grown.clumps, leafParams(params, level));
   countVertices();
-  framing.fit(bounds(tree.geometry, foliage).box);
+  // Framed as the tree it is, so a lighter level is seen at the same size
+  if (!isFull(level)) return;
+  fullBounds = bounds(tree.geometry, foliage);
+  framing.fit(fullBounds.box);
 }
 
 function placeSun() {
@@ -660,6 +697,8 @@ const exportParams = {
   spriteElevation: 10, // degrees above level
   impostorFrames: "8",
   impostorAtlas: "2048",
+  lodLevels: LEVELS.length, // tree + LODs': the tree and its lighter copies, all of them
+  lodImpostor: true, // and the impostor after them, as its own folder makes it
 };
 // An impostor's atlas sizes, pixels a side, and its views a side. More
 // views share the same pixels: past 12 each gets too few to be worth the
@@ -693,6 +732,37 @@ async function impostorOf(frames, size) {
     radius: sphere.radius,
   };
 }
+// An impostor drawn from the tree grown at a level of detail, and the tree
+// put back as it was. The levels' impostor is drawn from the last of them,
+// the one it takes over from, so the switch shows as little as it can
+async function impostorAtLevel(level, frames, size) {
+  const was = shownLevel;
+  showLevel(level);
+  try {
+    return await impostorOf(frames, size);
+  } finally {
+    showLevel(was);
+  }
+}
+// The tree at each of count levels of detail, baked, each grown on the
+// spot, and the tree put back as it was. Nothing is drawn in between. While
+// a new tree is on its way, it waits for it, as growing the levels would
+// put it on before the old one has folded away
+async function bakeLevels(count) {
+  while (held) await new Promise((resolve) => setTimeout(resolve, 100));
+  const was = shownLevel;
+  const levels = [];
+  for (let level = 0; level < count; level++) {
+    showLevel(level);
+    levels.push({
+      wood: tree.geometry,
+      leaves: foliage.bake(),
+      coverage: LEVELS[level].coverage,
+    });
+  }
+  showLevel(was);
+  return levels;
+}
 const EXPORTS = [
   {
     group: "3D models",
@@ -704,6 +774,26 @@ const EXPORTS = [
         barkColors,
         species: params.species,
         seed: params.seed,
+      }),
+  },
+  {
+    group: "3D models",
+    label: "tree + LODs",
+    use: "the tree and lighter copies of it for farther away, for engines that switch between them",
+    run: async () =>
+      exportGlb({
+        levels: await bakeLevels(exportParams.lodLevels),
+        impostor: exportParams.lodImpostor
+          ? await impostorAtLevel(
+              exportParams.lodLevels - 1,
+              exportParams.impostorFrames,
+              exportParams.impostorAtlas,
+            )
+          : null,
+        barkColors,
+        species: params.species,
+        seed: params.seed,
+        name: fileName("lods", "glb"),
       }),
   },
   {
@@ -753,6 +843,23 @@ const EXPORTS = [
       }),
   },
 ];
+// Every export draws and bakes the tree as it is, whatever the dev preview
+// shows of it
+let preview = null;
+for (const choice of EXPORTS) {
+  const run = choice.run;
+  choice.run = async () => {
+    const was = shownLevel;
+    preview?.suspend();
+    if (was) showLevel(0);
+    try {
+      return await run();
+    } finally {
+      if (was) showLevel(was);
+      preview?.resume();
+    }
+  };
+}
 // The material code a GLB needs to look as it did here, from its button
 // under the Inspector's, the way to the repo, and the sound of the wind
 // and the leaves beside it
@@ -830,6 +937,7 @@ const seasonControl = leafSection
   .name("season")
   .onChange(() => {
     countVertices();
+    treeChanged();
     // Into or out of summer, the twigs' wood is built or left out
     if (twigsWanted() !== twigsBuilt) requestRebuild();
   });
@@ -899,6 +1007,7 @@ cards
   .onChange((name) => {
     foliage.setSegments(SEGMENTS[name]);
     countVertices();
+    treeChanged();
   });
 speciesSetting(
   "roundness",
@@ -1029,6 +1138,67 @@ function exportButton(folder, label) {
   folder.add({ export: () => bar.run(run) }, "export");
 }
 exportButton(exporting.addFolder("tree"), "tree");
+// The tree and its lighter copies: how many levels, the tree included, and
+// whether the impostor comes after them, made as the impostor's folder
+// says. Under them, how many vertices each level holds, counted a moment
+// after the tree last changed, while the folder is open, as each level is
+// grown and scattered afresh to count it
+const lodFolder = exporting.addFolder("tree + LODs");
+lodFolder
+  .add(exportParams, "lodLevels", 2, LEVELS.length, 1)
+  .name("levels")
+  .onChange(showLevelCounts);
+lodFolder
+  .add(exportParams, "lodImpostor")
+  .name("impostor level")
+  .onChange(showLevelCounts);
+const levelRows = [...LEVELS.map((_, i) => `LOD${i}`), "impostor"].map(
+  (label) => {
+    const value = createValueSpan();
+    const row = new Item(label, value);
+    lodFolder.paramList.add(row);
+    return { row, value };
+  },
+);
+let levelCounts = [];
+let countsShownStale = false;
+function showLevelCounts() {
+  levelRows.forEach(({ row, value }, i) => {
+    const impostor = i === LEVELS.length;
+    const shown = impostor
+      ? exportParams.lodImpostor
+      : i < exportParams.lodLevels;
+    if (shown) row.show();
+    else row.hide();
+    const count = impostor ? 4 : levelCounts[i];
+    value.textContent =
+      count === undefined || (levelsStale && !impostor)
+        ? "…"
+        : count.toLocaleString("en-US");
+  });
+}
+function countLevels() {
+  const was = shownLevel;
+  levelCounts = LEVELS.map((_, level) => {
+    showLevel(level);
+    return tree.geometry.attributes.position.count + foliage.bakedVertices();
+  });
+  showLevel(was);
+  levelsStale = countsShownStale = false;
+  showLevelCounts();
+}
+const COUNT_AFTER = 600; // milliseconds after the tree last changed that its levels are counted
+function countLevelsIfWanted(now) {
+  if (!levelsStale) return;
+  if (!countsShownStale) {
+    countsShownStale = true;
+    showLevelCounts();
+  }
+  if (held || !lodFolder.paramList.isOpen) return;
+  if (now - changedAt > COUNT_AFTER) countLevels();
+}
+showLevelCounts();
+exportButton(lodFolder, "tree + LODs");
 // Under an impostor's views and atlas, what they give: how many pixels a
 // view has, which is as big as the tree can stand on screen before it
 // blurs, and how much GPU memory the atlas takes with its mipmaps
@@ -1136,6 +1306,47 @@ imageDrop.restore();
 themeSeconds = 0.85;
 speciesRegrows = true;
 
+// The levels of detail, seen live in a section of the panel of their own,
+// only while the app is worked on with `pnpm dev` (lod-preview.js). It grows
+// the tree at the level it shows, and swaps it for the impostor
+function setTreeVisible(on) {
+  tree.visible = on && !params.wireframe;
+  wireframe.visible = on && params.wireframe;
+  foliage.setShown(on && params.leaves);
+}
+if (import.meta.env.DEV) {
+  import("./lod-preview.js").then(({ createLodPreview }) => {
+    preview = createLodPreview({
+      inspector: renderer.inspector,
+      camera,
+      controls,
+      scene,
+      levelCount: () => exportParams.lodLevels,
+      impostorWanted: () => exportParams.lodImpostor,
+      showLevel: (level) => {
+        if (level === shownLevel) return;
+        shownLevel = level;
+        rebuildWanted = true;
+      },
+      tuned: (level) => {
+        treeChanged();
+        if (level === shownLevel) rebuildWanted = true;
+      },
+      fullBounds: () => fullBounds,
+      setTreeVisible,
+      captureImpostor: async (level) =>
+        impostorMesh(
+          await impostorAtLevel(
+            level,
+            exportParams.impostorFrames,
+            exportParams.impostorAtlas,
+          ),
+        ),
+      changedAt: () => changedAt,
+    });
+  });
+}
+
 // Every section and folder starts closed, and so does the panel: the
 // Inspector opens it as soon as parameters are added. Its button at the top
 // right opens it
@@ -1229,6 +1440,8 @@ function frame() {
   shake.update(performance.now());
   updateHologram(performance.now());
   rebuildIfWanted();
+  countLevelsIfWanted(performance.now());
+  preview?.update();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));
   if (loading) waitForSteadyFrames();

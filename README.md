@@ -16,7 +16,8 @@ painted in code.
 - [The panel](#the-panel), with [every control](#every-control)
 - [Exporting](#exporting): [the tree's GLB](#the-trees-glb),
   [the cel look in three.js](#the-cel-look-in-threejs),
-  [impostors](#impostors), [sprite sheets](#sprite-sheets)
+  [levels of detail](#levels-of-detail), [impostors](#impostors),
+  [sprite sheets](#sprite-sheets)
 - [Changing the code](#changing-the-code)
 
 ## Quick start
@@ -278,6 +279,11 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | --- | --- |
 | **tree** | |
 | export | saves the tree as a GLB |
+| **tree + LODs** | |
+| levels | how many levels of detail, the full tree included: 2 to 4 |
+| impostor level | adds the impostor as the last level, made as the **impostor** folder sets |
+| LOD0… | read-outs: how many vertices each level holds, counted while the folder is open |
+| export | saves the tree with its levels of detail as a GLB |
 | **texture** | |
 | size | the image's width and height: 1024, 2048 or 4096 pixels |
 | transparent (RGBA) | a clear background instead of the theme's |
@@ -297,7 +303,7 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 
 ## Exporting
 
-**export**, at the bottom of the screen, opens a menu of four exports. The
+**export**, at the bottom of the screen, opens a menu of five exports. The
 panel's **Export** section sets how each is made and has its own **export**
 button for each, which is where they are on a phone. Everything is drawn
 with the tree still and fully grown, lit by the sun as it is when you
@@ -306,6 +312,7 @@ export. Files are named after the species and seed, such as `oak-8967.glb`.
 | export | file | what you get |
 | --- | --- | --- |
 | tree | `.glb` | the tree as meshes: see [the tree's GLB](#the-trees-glb) |
+| tree + LODs | `.glb` | the tree and lighter copies of it for farther away: see [levels of detail](#levels-of-detail) |
 | impostor | `.glb` | one quad showing pictures of the tree, for trees far away: see [impostors](#impostors) |
 | texture | `.png` | the camera's view, with the floor's shadow, the grass and the falling leaves, on the theme's background or a transparent one |
 | sprite sheet | `.png` | the tree from 4, 8 or 16 angles round it, for 2D and 2.5D games: see [sprite sheets](#sprite-sheets) |
@@ -493,6 +500,73 @@ leaves.material = new THREE.MeshToonMaterial({
 })
 ```
 
+### Levels of detail
+
+**tree + LODs** writes the tree as nodes `tree_LOD0`, `tree_LOD1` and so
+on, as Unity names them. `tree_LOD0` is the full tree, the same as
+**tree** gives. Each level after it is grown again from the same seed, so
+the branches stay where they were, with fewer sides round each branch and
+rings along it, flat tips, and the thinnest branches and the twigs left
+out. Its leaves are fewer, bigger cards, flat, on the same clumps; the
+farthest level merges neighbouring clumps too. With **impostor level**
+ticked, the impostor is the last level, drawn from the level before it
+rather than the full tree, so the switch to it shows as little as it can.
+The **impostor** export on its own is drawn from the full tree. Each level's meshes are named after
+it, like `wood_LOD1` and `leaves_LOD1`, and share their materials, so
+`celShade` works on them as on the tree's.
+
+Only `tree_LOD0` is in the scene, so a plain viewer shows the full tree. It
+lists the other levels in glTF's `MSFT_lod` extension, and in its extras,
+`MSFT_screencoverage`, the share of the screen's height each level shows
+down to. Each level's own `extras` say which it is, how many vertices it
+holds and its share. Engines that read `MSFT_lod`, like Babylon.js, switch
+levels on their own. In three.js, build a `THREE.LOD` from them:
+
+```js
+import * as THREE from 'three'
+
+// A THREE.LOD from a GLB with levels of detail: tree_LOD0 is in the scene,
+// and lists the other levels' nodes in its MSFT_lod extension, and the
+// share of the screen's height each shows down to in its extras. Each
+// level takes over at the camera's distance where the sphere round the
+// tree shrinks to the share of the one before, and past the last share
+// nothing is drawn
+export async function treeLOD(gltf, camera) {
+  const first = gltf.scene.getObjectByName('tree_LOD0')
+  const { ids } = first.userData.gltfExtensions.MSFT_lod
+  const shares = first.userData.MSFT_screencoverage
+  const radius = new THREE.Box3().setFromObject(first).getBoundingSphere(new THREE.Sphere()).radius
+  const distance = (share) => radius / (share * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))
+  const lod = new THREE.LOD()
+  lod.addLevel(first, 0)
+  for (const [i, id] of ids.entries()) lod.addLevel(await gltf.parser.getDependency('node', id), distance(shares[i]))
+  lod.addLevel(new THREE.Object3D(), distance(shares.at(-1)))
+  return lod
+}
+```
+
+Update it yourself each frame: left to itself, `WebGPURenderer` updates
+it again from the sun's shadow camera, far off, and the shadows go by that:
+
+```js
+const gltf = await new GLTFLoader().loadAsync('oak-8967-lods.glb')
+const lod = await treeLOD(gltf, camera)
+lod.autoUpdate = false
+scene.add(lod)
+
+renderer.setAnimationLoop(() => {
+  lod.update(camera)
+  renderer.render(scene, camera)
+})
+```
+
+For a forest, `lod.clone()` it once for each tree, as they share their
+geometry and materials. Scale a tree, and scale its levels' `distance`
+with it.
+
+Put `impostor`, below, on the impostor level's mesh, `impostor_LOD4` with
+four levels before it (LOD0 to LOD3).
+
 ### Impostors
 
 An impostor is a flat stand-in for a tree far away: one quad, turned to
@@ -655,6 +729,9 @@ Where to start:
 - `themes.js`: the colour themes.
 - `main.js`: the scene, the panel and the render loop.
 - `glb.js` and `capture.js`: the exports.
+- `lod.js`: the levels of detail. With `pnpm dev`, the panel has a **LOD
+  preview** section, `lod-preview.js`, to see each level on screen, set
+  their settings with sliders and copy them back into `lod.js`.
 
 To add a species, write its file like the others and add it to `SPECIES`
 in `main.js`, which builds its button and sliders from it. There are no
