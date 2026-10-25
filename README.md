@@ -118,7 +118,7 @@ Keys do nothing while you're typing in a field.
 
 Every setting is in the panel at the top right, three's WebGPU Inspector,
 in one section per part of the scene: Tree, Leaves, Wind, Grass, Falling
-leaves, Lights and Export. The filter box finds a setting by name, and each
+leaves, Lights, Export and LOD preview. The filter box finds a setting by name, and each
 section and folder has its own reset.
 
 Picking a theme sets every colour and the shadows' darkness. Picking a
@@ -299,6 +299,31 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | each view, on the GPU | read-outs: how many pixels each view gets, and how much GPU memory the atlas takes with its mipmaps |
 | shadow | adds the impostor's shadow, a quad on the ground under it |
 | export | saves the impostor as a GLB |
+
+</details>
+
+<details>
+<summary><b>LOD preview</b>: each level of detail on screen, and its settings</summary>
+
+| control | what it does |
+| --- | --- |
+| show | *debug*: the tree as it is, one level, the impostor, or **by screen share**, the level an engine would pick for how much of the screen the tree takes; past the tree, the camera can back away far enough to see the last level |
+| showing, screen share | read-outs: the level on screen, and the share of the screen's height the tree takes |
+| **LOD0** | |
+| coverage | the share of the screen's height the full tree shows down to |
+| **LOD1…** | |
+| coverage | the share of the screen's height the level shows down to |
+| sides | its sides round a branch, as a share of the tree's |
+| rings | a ring at every this many kinks along a branch |
+| cut | the thinnest branch it keeps, as a share of the trunk |
+| caps | rings closing each branch's tip |
+| cards | its leaf cards, as a share of the tree's |
+| grow | how much its cards grow to make up for those left out: 0.5 covers the same area |
+| segments | squares a side each card is cut into |
+| merges | how many times over neighbouring clumps are merged in pairs |
+| fill | how big a merged clump grows, from keeping its pair's volume, at 0, to wrapping round them, at 1 |
+| **impostor** | |
+| coverage | the share of the screen's height the impostor shows down to, below which the tree isn't drawn |
 
 </details>
 
@@ -518,7 +543,10 @@ out. Its leaves are fewer, bigger cards, flat, on the same clumps; the
 farthest level merges neighbouring clumps too. With **impostor level**
 ticked, the impostor is the last level, drawn from the level before it
 rather than the full tree, so the switch to it shows as little as it can.
-The **impostor** export on its own is drawn from the full tree. Each level's meshes are named after
+The **impostor** export on its own is drawn from the full tree. The panel's
+**LOD preview** shows each level on screen and sets how light it is and the
+share of the screen it shows down to; the export makes the levels as they're
+set there. Each level's meshes are named after
 it, like `wood_LOD1` and `leaves_LOD1`, and share their materials, so
 `celShade` works on them as on the tree's.
 
@@ -750,9 +778,9 @@ Where to start:
 - `themes.js`: the colour themes.
 - `main.js`: the scene, the panel and the render loop.
 - `glb.js` and `capture.js`: the exports.
-- `lod.js`: the levels of detail. With `pnpm dev`, the panel has a **LOD
-  preview** section, `lod-preview.js`, to see each level on screen, set
-  their settings with sliders and copy them back into `lod.js`.
+- `lod.js`: the levels of detail, and `lod-preview.js`, the panel's **LOD
+  preview**. With `pnpm dev`, its **copy levels** copies the levels as
+  they're set, to paste back into `lod.js` as the ones a page starts with.
 
 To add a species, write its file like the others and add it to `SPECIES`
 in `main.js`, which builds its button and sliders from it. There are no

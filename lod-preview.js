@@ -5,16 +5,18 @@ import { createValueSpan } from 'three/addons/inspector/ui/utils.js'
 import { IMPOSTOR, LEVELS } from './lod.js'
 import { shadowColor, shadowDarkness, sunDirection } from './shading.js'
 
-// The levels of detail, seen live while the app is being worked on, in a
-// LOD preview section of the panel that only `pnpm dev` has, out of the
-// address and the resets. It shows the tree at any level, with its wind and
+// The levels of detail, seen live in a LOD preview section of the panel.
+// It shows the tree at any level, with its wind and
 // shading, or the impostor, or the level an engine would pick for the share
 // of the screen the tree takes. Off the tree as it is, the camera is let out
 // far enough to see the tree as small as the last level shows it. The share
 // is always read out, to set each level's against.
 // Until the impostor is drawn, the last level stands in for it.
-// Each level's settings are sliders, editing LEVELS in place, and copy
-// levels writes them out to paste back into lod.js
+// Each level's settings are sliders, editing LEVELS in place, so the
+// tree + LODs export, which reads them as it runs, comes out as they're
+// set. They're in the address and the resets like any other section, but
+// what's shown isn't. With `pnpm dev`, copy levels writes them out to paste
+// back into lod.js
 
 const FAR = 4000 // metres: how far the camera may back away while a level is previewed
 const IMPOSTOR_AFTER = 600 // milliseconds after the tree last changed that the impostor is drawn again
@@ -38,12 +40,13 @@ const BY_SHARE = 'by screen share'
 // grows the tree at a level, tuned(level) says a level's settings changed;
 // fullBounds gives the sphere round the tree as it is; setTreeVisible shows
 // or hides it; captureImpostor(level) draws the impostor's quad from the
-// tree grown at a level; changedAt gives when the tree last changed
-export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, shadowWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt }) {
+// tree grown at a level; changedAt gives when the tree last changed;
+// debugView keeps a control out of the address
+export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, shadowWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt, debugView }) {
   const section = inspector.createParameters('LOD preview')
   const state = { show: 'the tree' }
   const choices = ['the tree', ...LEVELS.map((_, i) => `LOD${i}`), 'impostor', BY_SHARE]
-  section.add(state, 'show', choices).onChange(pick)
+  debugView(section.add(state, 'show', choices)).onChange(pick)
   const readout = (label) => {
     const value = createValueSpan()
     section.paramList.add(new Item(label, value))
@@ -60,7 +63,7 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     }
   })
   section.addFolder('impostor').add(IMPOSTOR, 'coverage', ...TUNING.coverage)
-  section.add({ 'copy levels': copyLevels }, 'copy levels')
+  if (import.meta.env.DEV) section.add({ 'copy levels': copyLevels }, 'copy levels')
 
   let showing = 0 // a level, 'impostor', or 'nothing' below the last level's share
   let impostor = null
@@ -178,7 +181,7 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     navigator.clipboard.writeText(text)
   }
 
-  return { update, suspend, resume }
+  return { section, update, suspend, resume }
 }
 
 // The README's impostor for WebGPURenderer: its quad turns to the view in

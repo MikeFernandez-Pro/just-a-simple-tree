@@ -37,6 +37,7 @@ import { createCodeView } from "./code-view.js";
 import { createRepoLink } from "./repo-link.js";
 import { createSound } from "./sound.js";
 import { exportGlb, impostorMesh } from "./glb.js";
+import { createLodPreview } from "./lod-preview.js";
 import { createCapture, download, encode, MAX_ATLAS } from "./capture.js";
 import { bounds, vertices } from "./bounds.js";
 import { createThemeButtons, START_THEME, THEMES } from "./themes.js";
@@ -366,7 +367,8 @@ let grown;
 let twigsBuilt = false;
 const twigsWanted = () => twigsShow(foliage.uniforms.age.value);
 // The level of detail the tree is grown at (lod.js): 0, the tree as it is,
-// unless an export or the dev preview asks for a lighter one for a moment
+// unless an export asks for a lighter one for a moment, or the LOD preview
+// shows one
 let shownLevel = 0;
 function showLevel(level) {
   shownLevel = level;
@@ -413,7 +415,7 @@ function rebuild() {
 }
 
 // The bounds of the tree as it is, last time it was scattered, for the
-// camera to frame and the dev preview to measure its share of the screen by
+// camera to frame and the LOD preview to measure its share of the screen by
 let fullBounds = null;
 function scatterLeaves() {
   const level = LEVELS[shownLevel];
@@ -850,7 +852,7 @@ const EXPORTS = [
       }),
   },
 ];
-// Every export draws and bakes the tree as it is, whatever the dev preview
+// Every export draws and bakes the tree as it is, whatever the LOD preview
 // shows of it
 let preview = null;
 for (const choice of EXPORTS) {
@@ -1273,6 +1275,45 @@ const themeBindings = [
   [darknessControl, (theme) => theme.shadow.darkness],
 ];
 pickTheme(START_THEME);
+// The levels of detail, seen live in a section of the panel of their own
+// (lod-preview.js). It grows the tree at the level it shows, and swaps it
+// for the impostor. Its sliders set the levels the tree + LODs export makes
+function setTreeVisible(on) {
+  tree.visible = on && !params.wireframe;
+  wireframe.visible = on && params.wireframe;
+  foliage.setShown(on && params.leaves);
+}
+preview = createLodPreview({
+  inspector: renderer.inspector,
+  camera,
+  controls,
+  scene,
+  levelCount: () => exportParams.lodLevels,
+  impostorWanted: () => exportParams.lodImpostor,
+  shadowWanted: () => exportParams.impostorShadow,
+  showLevel: (level) => {
+    if (level === shownLevel) return;
+    shownLevel = level;
+    rebuildWanted = true;
+  },
+  tuned: (level) => {
+    treeChanged();
+    if (level === shownLevel) rebuildWanted = true;
+  },
+  fullBounds: () => fullBounds,
+  setTreeVisible,
+  captureImpostor: async (level) =>
+    impostorMesh(
+      await impostorAtLevel(
+        level,
+        exportParams.impostorFrames,
+        exportParams.impostorAtlas,
+      ),
+    ),
+  changedAt: () => changedAt,
+  debugView,
+});
+
 const sections = [
   treeSection,
   leafSection,
@@ -1281,6 +1322,7 @@ const sections = [
   fall,
   light,
   exporting,
+  preview.section,
 ];
 showSpecies();
 // The controls a theme or species sets, and where it puts them now
@@ -1318,48 +1360,6 @@ imageDrop.restore();
 // grows in
 themeSeconds = 0.85;
 speciesRegrows = true;
-
-// The levels of detail, seen live in a section of the panel of their own,
-// only while the app is worked on with `pnpm dev` (lod-preview.js). It grows
-// the tree at the level it shows, and swaps it for the impostor
-function setTreeVisible(on) {
-  tree.visible = on && !params.wireframe;
-  wireframe.visible = on && params.wireframe;
-  foliage.setShown(on && params.leaves);
-}
-if (import.meta.env.DEV) {
-  import("./lod-preview.js").then(({ createLodPreview }) => {
-    preview = createLodPreview({
-      inspector: renderer.inspector,
-      camera,
-      controls,
-      scene,
-      levelCount: () => exportParams.lodLevels,
-      impostorWanted: () => exportParams.lodImpostor,
-      shadowWanted: () => exportParams.impostorShadow,
-      showLevel: (level) => {
-        if (level === shownLevel) return;
-        shownLevel = level;
-        rebuildWanted = true;
-      },
-      tuned: (level) => {
-        treeChanged();
-        if (level === shownLevel) rebuildWanted = true;
-      },
-      fullBounds: () => fullBounds,
-      setTreeVisible,
-      captureImpostor: async (level) =>
-        impostorMesh(
-          await impostorAtLevel(
-            level,
-            exportParams.impostorFrames,
-            exportParams.impostorAtlas,
-          ),
-        ),
-      changedAt: () => changedAt,
-    });
-  });
-}
 
 // Every section and folder starts closed, and so does the panel: the
 // Inspector opens it as soon as parameters are added. Its button at the top

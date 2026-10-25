@@ -10,8 +10,9 @@ import * as THREE from 'three/webgpu'
 // says. The impostor may come after the last, as glb.js writes it.
 //
 // Each level is shown down to coverage, the share of the screen's height
-// the sphere round the tree takes. The numbers are the dev preview's to
-// tune (lod-preview.js), which edits them in place
+// the sphere round the tree takes. These are the levels a page starts with:
+// the panel's LOD preview (lod-preview.js) edits them in place, and the
+// export reads them as it runs
 
 export const LEVELS = [
   { coverage: 0.5 }, // the tree as it is
