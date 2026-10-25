@@ -146,7 +146,8 @@ typed into a slider's box may go past the slider's range.
 | shadow, mid, light | the wood's three cel bands, from the shadow side to the lit one |
 
 The shape folder only shows the sliders the species uses. The bush, having
-no wood, hides the wood's sliders, the wireframe and the wood's colours.
+no wood, hides the wood's sliders, the wireframe and the wood's colours,
+and each level's wood sliders in the LOD preview.
 
 | slider | species | what it does |
 | --- | --- | --- |
@@ -324,6 +325,9 @@ no wood, hides the wood's sliders, the wireframe and the wood's colours.
 | fill | how big a merged clump grows, from keeping its pair's volume, at 0, to wrapping round them, at 1 |
 | **impostor** | |
 | coverage | the share of the screen's height the impostor shows down to, below which the tree isn't drawn |
+
+The coverages always fall from LOD0 to the impostor, as an engine switching
+between the levels needs: one set past its neighbour's pushes it along.
 
 </details>
 

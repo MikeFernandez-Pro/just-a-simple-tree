@@ -2,7 +2,7 @@ import * as THREE from 'three/webgpu'
 import { abs, cameraPosition, cross, float, floor, modelWorldMatrixInverse, normalize, select, step, texture, uniformArray, uv, varying, vec2, vec3, vec4 } from 'three/tsl'
 import { Item } from 'three/addons/inspector/ui/Item.js'
 import { createValueSpan } from 'three/addons/inspector/ui/utils.js'
-import { IMPOSTOR, LEVELS } from './lod.js'
+import { IMPOSTOR, LEVELS, WOOD_SETTINGS } from './lod.js'
 import { shadowColor, shadowDarkness, sunDirection } from './shading.js'
 
 // The levels of detail, seen live in a LOD preview section of the panel.
@@ -14,12 +14,15 @@ import { shadowColor, shadowDarkness, sunDirection } from './shading.js'
 // Until the impostor is drawn, the last level stands in for it.
 // Each level's settings are sliders, editing LEVELS in place, so the
 // tree + LODs export, which reads them as it runs, comes out as they're
-// set. They're in the address and the resets like any other section, but
-// what's shown isn't. With `pnpm dev`, copy levels writes them out to paste
-// back into lod.js
+// set. Their coverages always fall from LOD0 to the impostor, as an engine
+// switching between them needs. They're in the address and the resets like
+// any other section, but what's shown isn't. Going back to the tree lets
+// the impostor's atlas go. With `pnpm dev`, copy levels writes them out to
+// paste back into lod.js
 
 const FAR = 4000 // metres: how far the camera may back away while a level is previewed
 const IMPOSTOR_AFTER = 600 // milliseconds after the tree last changed that the impostor is drawn again
+const RETRY_AFTER = 5000 // milliseconds after the impostor failed to draw that it's tried again
 // Each setting's slider: its least, its most and its step
 const TUNING = {
   coverage: [0.001, 1, 0.001], // the share of the screen's height it shows down to
@@ -37,12 +40,15 @@ const BY_SHARE = 'by screen share'
 
 // levelCount and impostorWanted give the export's levels, and shadowWanted
 // whether its impostor has a shadow; showLevel(level)
-// grows the tree at a level, tuned(level) says a level's settings changed;
+// grows the tree at a level, tuned(level) says a level's settings changed,
+// other than its coverage, which changes nothing grown;
 // fullBounds gives the sphere round the tree as it is; setTreeVisible shows
 // or hides it; captureImpostor(level) draws the impostor's quad from the
 // tree grown at a level; changedAt gives when the tree last changed;
-// debugView keeps a control out of the address
-export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, shadowWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt, debugView }) {
+// debugView keeps a control out of the address, and woodSetting marks one
+// hidden for a species that grows no wood. It gives back oneAtATime, for
+// the exports to wait their turn with its impostor
+export function createLodPreview({ inspector, camera, controls, scene, levelCount, impostorWanted, shadowWanted, showLevel, tuned, fullBounds, setTreeVisible, captureImpostor, changedAt, debugView, woodSetting }) {
   const section = inspector.createParameters('LOD preview')
   const state = { show: 'the tree' }
   const choices = ['the tree', ...LEVELS.map((_, i) => `LOD${i}`), 'impostor', BY_SHARE]
@@ -55,26 +61,47 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
   const showingText = readout('showing')
   const shareText = readout('screen share')
 
+  const coverageControls = []
   LEVELS.forEach((level, i) => {
     const folder = section.addFolder(`LOD${i}`)
     for (const key of i === 0 ? ['coverage'] : Object.keys(TUNING)) {
       const [min, max, step] = TUNING[key]
-      folder.add(level, key, min, max, step).onChange(() => tuned(i))
+      const control = folder.add(level, key, min, max, step)
+      if (key === 'coverage') coverageControls.push(control.onChange(() => keepInOrder(i)))
+      else control.onChange(() => tuned(i))
+      if (WOOD_SETTINGS.includes(key)) woodSetting(control)
     }
   })
-  section.addFolder('impostor').add(IMPOSTOR, 'coverage', ...TUNING.coverage)
+  coverageControls.push(section.addFolder('impostor').add(IMPOSTOR, 'coverage', ...TUNING.coverage).onChange(() => keepInOrder(LEVELS.length)))
   if (import.meta.env.DEV) section.add({ 'copy levels': copyLevels }, 'copy levels')
+
+  // A coverage set past a neighbour's pushes it on, a notch at a time,
+  // and one pushed against an end of its slider stops short of it, leaving
+  // room for those beyond
+  function keepInOrder(i) {
+    const [least, most, notch] = TUNING.coverage
+    const levels = [...LEVELS, IMPOSTOR]
+    const setCoverage = (j, coverage) => {
+      const rounded = +coverage.toFixed(3)
+      if (rounded !== levels[j].coverage) coverageControls[j].setValue(rounded)
+    }
+    setCoverage(i, THREE.MathUtils.clamp(levels[i].coverage, least + (levels.length - 1 - i) * notch, most - i * notch))
+    for (let j = i - 1; j >= 0; j--) setCoverage(j, Math.max(levels[j].coverage, levels[j + 1].coverage + notch))
+    for (let j = i + 1; j < levels.length; j++) setCoverage(j, Math.min(levels[j].coverage, levels[j - 1].coverage - notch))
+  }
 
   let showing = 0 // a level, 'impostor', or 'nothing' below the last level's share
   let impostor = null
-  let impostorAt = -Infinity // when the tree had last changed as the impostor was drawn
-  let impostorFrom = -1 // the level it was drawn from, the export's last
-  let impostorLit = '' // the sun and shadow it was drawn with
-  let lit = '' // the sun and shadow now, and when they last changed
-  let litAt = 0
+  // What the impostor is drawn from, as one key: when the tree last
+  // changed, the level and the lights. The key it was drawn from, and the
+  // key now, kept up while the preview is open, and since when
+  let drawnSource = ''
+  let source = ''
+  let sourceSince = 0
+  let failedAt = -Infinity // when the impostor last failed to draw
   const lighting = () => [...sunDirection.value.toArray(), shadowColor.value.getHex(), shadowDarkness.value, shadowWanted()].join()
   let capturing = false
-  let suspended = false
+  let suspended = false // while an export or the impostor draws the tree
   let far = null // the camera's own far plane and farthest zoom, while they're let out
 
   function pick() {
@@ -90,17 +117,22 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
       camera.updateProjectionMatrix()
       far = null
     }
+    if (!previewing) dropImpostor()
     if (state.show === BY_SHARE) return
     if (state.show === 'impostor') show('impostor')
     else show(previewing ? Number(state.show.slice(3)) : 0)
   }
 
+  // While an export or the impostor has the tree, a level picked waits for
+  // it to finish, so the tree isn't regrown under it
   function show(what) {
     if (what === showing) return
     showing = what
-    showLevel(typeof what === 'number' ? what : levelCount() - 1)
+    if (suspended) return
+    showLevel(levelShown())
     apply()
   }
+  const levelShown = () => (typeof showing === 'number' ? showing : levelCount() - 1)
 
   // Whichever of the tree and the impostor is to be seen, the tree standing
   // in for the impostor until it's drawn
@@ -121,58 +153,95 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     return 'nothing'
   }
 
-  // Once a frame, after the tree has been rebuilt
+  // Once a frame, after the tree has been rebuilt. The read-outs are only
+  // written when they change, and what the impostor is drawn from only
+  // looked at while the preview is open. Opened afresh, it's drawn at once
   function update() {
     const sphere = fullBounds()
     if (!sphere || suspended) return
     const distance = Math.max(camera.position.distanceTo(sphere.center), 1e-3)
     const share = sphere.radius / (distance * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))
-    shareText.textContent = share.toFixed(3)
+    write(shareText, share.toFixed(3))
     if (state.show === BY_SHARE) show(levelFor(share))
-    showingText.textContent = typeof showing === 'number' ? `LOD${showing}` : showing
-    if (lighting() !== lit) [lit, litAt] = [lighting(), performance.now()]
-    const stale = changedAt() > impostorAt || impostorFrom !== levelCount() - 1 || impostorLit !== lit
-    const settled = performance.now() - Math.max(changedAt(), litAt) > IMPOSTOR_AFTER
+    write(showingText, typeof showing === 'number' ? `LOD${showing}` : showing)
+    if (state.show === 'the tree') return
+    const now = performance.now()
+    const sourceNow = [changedAt(), levelCount() - 1, lighting()].join()
+    if (sourceNow !== source) [source, sourceSince] = [sourceNow, source ? now : 0]
+    const stale = !impostor || source !== drawnSource
+    const settled = now - sourceSince > IMPOSTOR_AFTER && now - failedAt > RETRY_AFTER
     if (showing === 'impostor' && stale && settled && !capturing) drawImpostor()
+  }
+  function write(span, text) {
+    if (span.textContent !== text) span.textContent = text
   }
 
   // The impostor drawn afresh while it's seen, from the export's last
-  // level, as the export draws it
+  // level, as the export draws it. One that fails is tried again a while
+  // later, and one no longer wanted by the time it's drawn goes at once. It
+  // comes in hidden, in case an export has the tree out by then
   async function drawImpostor() {
     capturing = true
-    impostorAt = changedAt()
-    impostorFrom = levelCount() - 1
-    impostorLit = lit
-    suspend()
+    const drawing = source
+    let mesh = null
     try {
-      const mesh = await captureImpostor(impostorFrom)
+      mesh = await oneAtATime(() => captureImpostor(levelCount() - 1))
       faceCamera(mesh)
-      if (impostor) {
-        scene.remove(impostor)
-        impostor.traverse((part) => {
-          part.geometry.dispose()
-          part.material.map?.dispose()
-          part.material.dispose()
-        })
-      }
+      if (impostor) discard(impostor)
       impostor = mesh
+      impostor.visible = false
       scene.add(impostor)
+      drawnSource = drawing
+    } catch (error) {
+      console.error(error)
+      failedAt = performance.now()
+      if (mesh && mesh !== impostor) discard(mesh)
     } finally {
       capturing = false
-      resume()
+      if (state.show === 'the tree') dropImpostor()
+      apply()
     }
   }
 
-  // While an export draws and bakes the tree, the tree is seen and the
-  // impostor isn't
-  function suspend() {
-    suspended = true
-    setTreeVisible(true)
-    if (impostor) impostor.visible = false
+  // The impostor and its atlas let go, to be drawn afresh when it's wanted
+  // again. One still being drawn goes once it's done
+  function dropImpostor() {
+    if (impostor && !capturing) {
+      discard(impostor)
+      impostor = null
+    }
+    source = ''
   }
-  function resume() {
-    suspended = false
-    apply()
+  function discard(mesh) {
+    scene.remove(mesh)
+    mesh.userData.atlas?.dispose()
+    mesh.traverse((part) => {
+      part.geometry.dispose()
+      part.material.map?.dispose()
+      part.material.dispose()
+    })
+  }
+
+  // The exports and the impostor each grow the tree at a level and take the
+  // canvas over to draw it, so they wait for each other, one at a time, the
+  // tree seen meanwhile and the impostor not. Then the level picked
+  // meanwhile goes on. The queue keeps nothing of what each gives back
+  let lastTurn = Promise.resolve()
+  function oneAtATime(task) {
+    const turn = lastTurn.then(async () => {
+      suspended = true
+      setTreeVisible(true)
+      if (impostor) impostor.visible = false
+      try {
+        return await task()
+      } finally {
+        suspended = false
+        showLevel(levelShown())
+        apply()
+      }
+    })
+    lastTurn = turn.then(() => {}, () => {})
+    return turn
   }
 
   function copyLevels() {
@@ -181,7 +250,7 @@ export function createLodPreview({ inspector, camera, controls, scene, levelCoun
     navigator.clipboard.writeText(text)
   }
 
-  return { section, update, suspend, resume }
+  return { section, update, oneAtATime }
 }
 
 // The README's impostor for WebGPURenderer: its quad turns to the view in
@@ -210,6 +279,10 @@ function faceCamera(mesh) {
   material.colorNode = view
   const inside = step(0, inFrame.x).mul(step(inFrame.x, 1)).mul(step(0, inFrame.y)).mul(step(inFrame.y, 1))
   material.opacityNode = view.a.mul(inside)
+  // The node material reads the atlas through its texture node, not its
+  // map, so the atlas is kept on the mesh to be let go with it
   mesh.material = material
+  mesh.userData.atlas = old.map
+  old.dispose()
   mesh.frustumCulled = false
 }

@@ -27,6 +27,10 @@ const MERGE_REACH = 1.5 // how far apart two clumps may be and still merge, the 
 // Whether a level is the tree as it is
 export const isFull = (level) => !level.sides
 
+// A level's settings that only change its wood, hidden for a species that
+// grows none. woodParams reads each of them
+export const WOOD_SETTINGS = ['sides', 'rings', 'cut', 'caps']
+
 // The settings a level's wood grows from
 export function woodParams(params, level) {
   if (isFull(level)) return params

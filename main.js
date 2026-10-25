@@ -674,11 +674,17 @@ function debugView(control) {
   return control;
 }
 
+// The tree, its wireframe in its place or not, and its leaves if they're
+// shown, unless the LOD preview (lod-preview.js) has put its impostor there
+let treeShown = true;
+function setTreeVisible(on) {
+  treeShown = on;
+  tree.visible = on && !params.wireframe;
+  wireframe.visible = on && params.wireframe;
+  foliage.setShown(on && params.leaves);
+}
 const wireframeControl = debugView(shape.add(params, "wireframe")).onChange(
-  (v) => {
-    wireframe.visible = v;
-    tree.visible = !v;
-  },
+  () => setTreeVisible(treeShown),
 );
 const woodColors = treeSection.addFolder("colors");
 const woodPickers = addRamp(woodColors, barkColors, ["shadow", "mid", "light"]);
@@ -853,21 +859,21 @@ const EXPORTS = [
   },
 ];
 // Every export draws and bakes the tree as it is, whatever the LOD preview
-// shows of it
-let preview = null;
+// shows of it. The exports are one at a time already through the bar, but
+// wait their turn with the preview's impostor, which takes the canvas over
+// too
 for (const choice of EXPORTS) {
   const run = choice.run;
-  choice.run = async () => {
-    const was = shownLevel;
-    preview?.suspend();
-    if (was) showLevel(0);
-    try {
-      return await run();
-    } finally {
-      if (was) showLevel(was);
-      preview?.resume();
-    }
-  };
+  choice.run = () =>
+    preview.oneAtATime(async () => {
+      const was = shownLevel;
+      if (was) showLevel(0);
+      try {
+        return await run();
+      } finally {
+        if (was) showLevel(was);
+      }
+    });
 }
 // The material code a GLB needs to look as it did here, from its button
 // under the Inspector's, the way to the repo, and the sound of the wind
@@ -986,7 +992,7 @@ debugView(clumps.add(params, "keepBuried"))
 const cards = leafSection.addFolder("cards");
 debugView(cards.add(params, "leaves"))
   .name("show leaves")
-  .onChange(foliage.setShown);
+  .onChange(() => setTreeVisible(treeShown));
 // Each species has its own leaves, but the texture you pick, painted or your
 // image, stays on through a change of species
 const leafTextureControl = speciesSetting(
@@ -1278,12 +1284,7 @@ pickTheme(START_THEME);
 // The levels of detail, seen live in a section of the panel of their own
 // (lod-preview.js). It grows the tree at the level it shows, and swaps it
 // for the impostor. Its sliders set the levels the tree + LODs export makes
-function setTreeVisible(on) {
-  tree.visible = on && !params.wireframe;
-  wireframe.visible = on && params.wireframe;
-  foliage.setShown(on && params.leaves);
-}
-preview = createLodPreview({
+const preview = createLodPreview({
   inspector: renderer.inspector,
   camera,
   controls,
@@ -1312,6 +1313,7 @@ preview = createLodPreview({
     ),
   changedAt: () => changedAt,
   debugView,
+  woodSetting: (control) => woodControls.push(control),
 });
 
 const sections = [
@@ -1455,7 +1457,7 @@ function frame() {
   updateHologram(performance.now());
   rebuildIfWanted();
   countLevelsIfWanted(performance.now());
-  preview?.update();
+  preview.update();
   falling.update(renderer);
   shake.draw(performance.now(), () => renderer.render(scene, camera));
   if (loading) waitForSteadyFrames();
