@@ -405,12 +405,13 @@ function rebuild() {
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
-  // The sway grows towards the top of the wood, or of the leaves on a bush
-  // that has none
-  grown.geometry.computeBoundingBox();
-  wind.height.value = grown.geometry.attributes.position.count
-    ? grown.geometry.boundingBox.max.y
-    : Math.max(...grown.clumps.map((c) => c.position.y + c.radius));
+  // The sway grows towards the top of the wood, every branch and twig
+  // counted whether this level of detail draws it or not, so the tree blows
+  // the same at every level, or towards the top of the leaves on a bush
+  // that has no wood
+  wind.height.value =
+    grown.geometry.userData.top ||
+    Math.max(...grown.clumps.map((c) => c.position.y + c.radius));
   scatterLeaves();
 }
 

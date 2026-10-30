@@ -68,6 +68,10 @@ export function createWood(params, random) {
   // With params.measuring, no wood is built, only how far along it the
   // farthest tip is, which is all growAged wants of a full grown tree
   let farthestEnd = 0
+  // The top of the tree, in metres: the highest point of every branch and
+  // twig, drawn or not, so the wind (wind.js) sways the tree as the same
+  // height at every level of detail, where the thinnest wood is left out
+  let top = 0
   // A lighter level of detail (lod.js) leaves out the tube of any branch
   // thinner than params.thinnest of the thickest, the trunk, made first,
   // takes every params.ringStep-th kink for its rings, and closes its tips
@@ -148,6 +152,7 @@ export function createWood(params, random) {
       const [k, r, f, p] = [points, radii, flexes, phases].map((list) => everyNth(list, ringStep))
       tube(k, r, from, length, hangs ? start.y : undefined, sides, params.smoothness, capRings, flare, flareTo, f, p)
     } else farthestBirth = Math.max(farthestBirth, from + length)
+    for (const point of points) top = Math.max(top, point.y)
     for (let i = 1; i < points.length; i++)
       addStretch(points[i - 1], points[i], flexes[i - 1], flexes[i], phases[i - 1], phases[i], radii[i - 1], radii[i])
     return { points, radii }
@@ -371,6 +376,7 @@ export function createWood(params, random) {
         }
         // One on a clump not grown yet is too short to draw
         if (length < MIN_LENGTH) continue
+        for (const point of points) top = Math.max(top, point.y)
         if (tubes) {
           const flexes = points.map(() => swing.flex * most)
           const phases = points.map(() => swing.phase)
@@ -436,11 +442,14 @@ export function createWood(params, random) {
     }
     geometry.userData.swayAt = swayAt
     geometry.userData.farthest = farthest
+    geometry.userData.top = top
     geometry.userData.withTwigs = (clumps, count, tubes = true) => {
       twigs(clumps, count, params.seed + 6151, farthest, most, tubes)
+      geometry.userData.top = top
       if (!tubes) return geometry
       const twigged = geometryOf(farthest, most)
       twigged.userData.swayAt = swayAt
+      twigged.userData.top = top
       return twigged
     }
     return { geometry, farthest }
