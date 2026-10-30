@@ -7,7 +7,8 @@ Nothing to install.
 
 A procedural, anime-style tree for three.js, to tune in the browser and
 export for your own project as a 3D model (`.glb`) or as images. There are
-five species: oak, pine, cypress, weeping willow and bush. Every tree grows
+six species: oak, pine, cypress, weeping willow, bush and a near dead,
+spooky tree. Every tree grows
 from a seed: nothing is modelled or loaded, and even the leaf textures are
 painted in code.
 
@@ -46,14 +47,23 @@ Actions.
 
 ## Features
 
-- **Five species**:
+- **Six species**:
   - **oak**: a short trunk splitting into limbs that branch again;
   - **pine**: a straight trunk ringed by whorls of drooping branches, a
     tiered cone of flat pads of needles;
   - **cypress**: a tall, narrow flame of short branches climbing a spiral;
   - **willow** (weeping willow): limbs rising like a fountain, hung with
     strands falling in curtains;
-  - **bush**: no wood, just a dome of leaf clumps on the ground.
+  - **bush**: no wood, just a dome of leaf clumps on the ground;
+  - **spooky**: a near dead tree after Tim Burton's, its thick trunk bent
+    into an S, its roots crawling over the ground, its branches zigzagging
+    out and its twigs thinning to fine points and curling over into spirals, a few of them still holding
+    a last small clump of leaves. Three carved
+    pumpkins sit at its foot, between its roots: the ones by the well in
+    [Last Light](https://mikefernandez-pro.github.io/three-vat/games/last-light/),
+    the author's game. It grows at night alone: picking it
+    brings the night theme on, and the other themes stay away until you
+    pick another tree.
 - **Seeds**: the same seed and settings always grow the same tree.
   **new tree**, at the bottom, picks a new seed: a sweep whooshes across
   the screen and knocks the old tree down as it reaches it, the tree
@@ -153,10 +163,10 @@ and each level's wood sliders in the LOD preview.
 | --- | --- | --- |
 | tree age | all | from a sapling at 0, with only its first branches, to an old tree at 1; at 0.6 the tree is just as the other sliders grow it |
 | size | all | the tree's height |
-| main limbs | oak, willow | how many limbs the trunk splits into |
-| levels | oak | how many times each limb branches again |
-| branches | oak | how many branches grow at each fork |
-| spread | oak, bush | how far the limbs, or the bush's clumps, reach out |
+| main limbs | oak, willow, spooky | how many limbs the trunk splits into |
+| levels | oak, spooky | how many times each limb branches again |
+| branches | oak, spooky | how many branches grow at each fork |
+| spread | oak, bush, spooky | how far the limbs, or the bush's clumps, reach out |
 | droop | pine, cypress | how the branches bend: down above 0, up below it |
 | whorls | pine | how many tiers of branches ring the trunk |
 | branches per whorl | pine | how many branches each tier has |
@@ -165,10 +175,14 @@ and each level's wood sliders in the LOD preview.
 | strands | willow | how many strands hang from its limbs |
 | hang | willow | how far down towards the ground the strands hang |
 | clumps | bush | how many leaf clumps are heaped into its dome |
+| twist | spooky | how far its trunk bends into an S |
+| curls | spooky | how many of its twigs curl over into spirals at their tips |
+| roots | spooky | how many roots crawl out over the ground from its foot |
+| leaves left | spooky | how many of its twigs still hold a small clump of leaves, where they start to curl: at 0, none, a bare tree |
 | crookedness | all with wood | how much the branches kink and wander |
 | trunk thickness | all with wood | how thick the trunk is, and the branches with it |
 | base flare | all with wood | how much wider the trunk spreads at the ground, like roots |
-| trunk height | oak, cypress | bare trunk under the oak's split or the cypress's crown, in metres |
+| trunk height | oak, cypress, spooky | bare trunk under the oak's or the spooky tree's limbs or the cypress's crown, in metres |
 | split height | oak | how far up the trunk the limbs split off |
 | split scatter | oak | how far down the trunk the limbs may leave it: at 0, all from its top |
 | sides | all with wood | sides round each branch: more smooth the cel bands' edges |
@@ -349,14 +363,17 @@ export. Files are named after the species and seed, such as `oak-8967.glb`.
 
 ### The tree's GLB
 
-The tree's GLB holds only the wood and the leaves: no grass, floor or
-falling leaves, and no wind. It's in metres, with the tree's foot at the
+The tree's GLB holds only the wood and the leaves: no grass, floor,
+pumpkins or falling leaves, and no wind. It's in metres, with the tree's foot at the
 origin. The card in the bottom left corner shows how many vertices it will
 have. Its materials are plain `MeshStandardMaterial`s, so it opens in any
 glTF viewer or engine. Its meshes are:
 
 - **`wood`**: the branches, and the twigs when the season shows them,
   not in summer, when they're hidden under the leaves. A bush has none.
+  Its uvs are in metres, u round each branch and v along the wood from
+  the ground, so a tiling bark texture's grain runs up every branch at
+  one size; each branch has a seam down it where u wraps.
 - **`leaves`**: alpha-masked, double-sided cards with their clumps' normals,
   the gradient and ambient occlusion baked into the vertex colours.
 - **`young leaves`** and **`turned leaves`**: the cards still unfolding or
@@ -771,8 +788,11 @@ tree's foot is on the same pixel in each, centred near the bottom.
 
 Where to start:
 
-- `oak.js`, `pine.js`, `cypress.js`, `willow.js`, `bush.js`: each species'
+- `oak.js`, `pine.js`, `cypress.js`, `willow.js`, `bush.js`, `spooky.js`: each species'
   shape rules, button icon, sliders and settings.
+- `pumpkins.js`: the spooky tree's pumpkins (`public/models/pumpkins.glb`),
+  cel shaded by `propMaterial` in `shading.js`, placed where its species
+  says.
 - `wood.js`: the branches and the twigs in the leaf clumps, as tubes, for
   every species.
 - `tree-age.js`: how a tree's shape changes as it ages.
@@ -805,10 +825,14 @@ and on WebGL2 as well as WebGPU.
   whoosh and the pop by [DRAGON-STUDIO](https://pixabay.com/users/dragon-studio-38165424/),
   all from Pixabay. See
   [public/music/CREDITS.md](public/music/CREDITS.md) for each track.
+- The spooky tree's pumpkins are the author's own, cut out of the well in
+  [Last Light](https://mikefernandez-pro.github.io/three-vat/games/last-light/),
+  a game on [three-vat](https://github.com/MikeFernandez-Pro/three-vat).
 
 ## License
 
 The code is [MIT](LICENSE). The music in `public/music/` and the whoosh
 and pop in `public/sounds/` aren't: they're under the Pixabay Content License, which
 doesn't allow distributing them on their own, so get them from Pixabay to
-use them elsewhere.
+use them elsewhere. The pumpkins in `public/models/` are the author's, from Last
+Light, and are MIT like the code.

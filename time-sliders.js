@@ -23,7 +23,8 @@ const ICONS = {
 const svg = (name) =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name]}</svg>`
 
-// controls: { age, season }, the panel's controls, each from 0 to 1
+// controls: { age, season }, the panel's controls, each from 0 to 1.
+// Returns each slider's label, so a species with no leaves can hide the season
 export function createTimeSliders(controls) {
   const style = document.createElement('style')
   style.textContent = `
@@ -101,10 +102,11 @@ export function createTimeSliders(controls) {
     // and species again, and space makes a new tree
     input.addEventListener('change', () => input.blur())
     control.addEventListener('change', ({ value }) => show(value))
+    return label
   }
 
-  slider(controls.age, 'age', 'the tree’s age: a sapling at the bottom, an old tree at the top', 'oldTree', 'sapling')
-  slider(controls.season, 'season', 'the season: the leaves unfolding at the bottom, a bare tree at the top', 'winter', 'leaf')
+  const age = slider(controls.age, 'age', 'the tree’s age: a sapling at the bottom, an old tree at the top', 'oldTree', 'sapling')
+  const season = slider(controls.season, 'season', 'the season: the leaves unfolding at the bottom, a bare tree at the top', 'winter', 'leaf')
 
-  return { card }
+  return { card, age, season }
 }

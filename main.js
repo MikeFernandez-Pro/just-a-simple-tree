@@ -19,6 +19,8 @@ import { pine } from "./pine.js";
 import { cypress } from "./cypress.js";
 import { willow } from "./willow.js";
 import { bush } from "./bush.js";
+import { spooky } from "./spooky.js";
+import { createPumpkins } from "./pumpkins.js";
 import {
   createFoliage,
   fallingTexture,
@@ -175,6 +177,10 @@ const params = {
   willowStrands: 111, // the willow's hanging strands
   hang: 0.8, // how far down towards the ground they hang
   bushClumps: 1, // the bush's leaf clumps
+  twist: 1, // how far the spooky tree's trunk bends into an S
+  curls: 0.75, // how many of the spooky tree's twigs curl over at their tips
+  roots: 5, // the spooky tree's roots, crawling over the ground
+  leavesLeft: 0.35, // the share of the spooky tree's twigs still holding leaves
   spread: 0.89,
   crookedness: 0.34,
   sides: 10,
@@ -202,6 +208,10 @@ const params = {
 // A small round patch of grass at the tree's foot
 const grass = createGrass();
 scene.add(grass.mesh);
+
+// The pumpkins at the foot of a species that grows them, the spooky tree's
+const pumpkins = createPumpkins();
+scene.add(pumpkins.group);
 
 const tree = new THREE.Mesh(new THREE.BufferGeometry(), barkMaterial());
 tree.castShadow = true;
@@ -311,7 +321,7 @@ function countVertices() {
 
 // Each species grows its wood and leaf clumps its own way, and brings its
 // name, icon, own shape sliders and own settings
-const SPECIES = { oak, pine, cypress, willow, bush };
+const SPECIES = { oak, pine, cypress, willow, bush, spooky };
 
 // Sliders send a change on every step of a drag: the tree is rebuilt once
 // per frame at most, with the latest values. A leaf setting that leaves the
@@ -396,12 +406,13 @@ function rebuild() {
   });
   grown.clumps = mergedClumps(grown.clumps, level);
   twigsBuilt = twigsWanted();
-  if (!species.woodless && twigsBuilt)
+  if (!species.woodless && !species.leafless && twigsBuilt)
     grown.geometry = grown.geometry.userData.withTwigs(
       grown.clumps,
       params.twigs,
       isFull(level),
     );
+  pumpkins.place(grown.pumpkins);
   tree.geometry.dispose();
   tree.geometry = grown.geometry;
   wireframe.geometry = grown.geometry;
@@ -474,6 +485,10 @@ const shake = createShake({
   crownCenter: foliage.uniforms.crownCenter,
 });
 function pickTheme(name) {
+  // A species of one theme keeps it: another asked for, by a link, turns
+  // back to it
+  const { theme } = SPECIES[params.species];
+  if (theme && name !== theme) return themeControl.setValue(theme);
   themeName = name;
   themeButtons.show(name);
   if (themeSeconds) {
@@ -550,6 +565,22 @@ const speciesButtons = createSpeciesButtons({
   species: SPECIES,
   onPick: (name) => speciesControl.setValue(name),
 });
+// A species with a theme of its own, the spooky tree's night, grows under
+// that theme alone: picking it brings its theme on, and the other themes'
+// stickers and options in the panel go until another species is picked
+const availableThemes = () => {
+  const { theme } = SPECIES[params.species];
+  return theme ? [theme] : Object.keys(THEMES);
+};
+function showAvailableThemes() {
+  const available = availableThemes();
+  for (const key of Object.keys(THEMES)) {
+    const shown = available.includes(key);
+    themeButtons.hide(key, !shown);
+    themeControl.select.querySelector(`option[value="${key}"]`).hidden =
+      !shown;
+  }
+}
 // The tree's shape, its trunk and its mesh in one folder. The mesh: sides
 // round each branch, and rings per kink along a curve through them. Its
 // normals are smooth; more sides smooth the edges of the cel bands too. The
@@ -577,6 +608,10 @@ const SHAPE_SLIDERS = {
   willowStrands: { min: 20, max: 300, step: 1, name: "strands" },
   hang: { min: 0.1, max: 1 },
   bushClumps: { min: 1, max: 20, step: 1, name: "clumps" },
+  twist: { min: 0, max: 2 },
+  curls: { min: 0, max: 1 },
+  roots: { min: 0, max: 8, step: 1 },
+  leavesLeft: { min: 0, max: 1, name: "leaves left" },
   crookedness: { min: 0, max: 1.5 },
   trunkThickness: { min: 0.1, max: 0.6, name: "trunk thickness" },
   baseFlare: { min: 0, max: 2, name: "base flare" },
@@ -601,7 +636,9 @@ for (const [key, { min, max, step, name = key }] of Object.entries(
 // limbs. A species without wood, the bush, hides everything that only
 // changes the wood too: these sliders, the wireframe and the wood's colours.
 // One that drops no leaves, the bush again, has none falling, not even
-// those a theme's gust knocks off, and hides their section
+// those a theme's gust knocks off, and hides their section. One with no
+// leaves at all, none yet, would hide them too, their season and the twigs
+// grown for them
 const ownSliders = new Set(Object.values(SPECIES).flatMap((s) => s.sliders));
 const woodControls = [
   "crookedness",
@@ -615,6 +652,7 @@ function showSpecies() {
   const {
     sliders,
     woodless = false,
+    leafless = false,
     dropsLeaves = true,
   } = SPECIES[params.species];
   for (const key of ownSliders) {
@@ -622,6 +660,9 @@ function showSpecies() {
   }
   for (const control of woodControls) setAvailable(control, !woodless);
   if (woodless) wireframeControl.setValue(false);
+  setAvailable(shapeControls.twigs, !woodless && !leafless);
+  setAvailable(leafSection, !leafless);
+  timeSliders.season.style.display = leafless ? "none" : "";
   setAvailable(fall, dropsLeaves);
   falling.mesh.visible = dropsLeaves;
 }
@@ -646,6 +687,9 @@ const SHAPE_SETTINGS = [
   "trunkThickness",
   "baseFlare",
   "trunkHeight",
+  "levels",
+  "branches",
+  "smoothness",
 ];
 for (const key of SHAPE_SETTINGS) speciesSetting(key, shapeControls[key]);
 const speciesDefault = (key, species = params.species) =>
@@ -654,6 +698,9 @@ const speciesDefault = (key, species = params.species) =>
 // your image: those stay on through a change of species
 let speciesWas = params.species;
 onChangeNow(speciesControl, () => {
+  const { theme } = SPECIES[params.species];
+  if (theme && theme !== themeName) themeControl.setValue(theme);
+  showAvailableThemes();
   speciesButtons.show(params.species);
   showSpecies();
   const leavesPicked =
@@ -667,6 +714,7 @@ onChangeNow(speciesControl, () => {
   if (speciesRegrows) breakTree();
 });
 speciesButtons.show(params.species);
+showAvailableThemes();
 // The debug views, kept out of the page's address, so a reload or a shared
 // link always starts without them
 const debugControls = [];
@@ -719,7 +767,7 @@ const capture = createCapture({
   renderer,
   scene,
   loop: frame,
-  scenery: [ground, grass.mesh, falling.mesh],
+  scenery: [ground, grass.mesh, falling.mesh, pumpkins.group],
   tree: [tree, wireframe, foliage.mesh, foliage.clumps],
   draw: () => shake.draw(performance.now(), () => renderer.render(scene, camera)),
 });
@@ -936,8 +984,10 @@ addEventListener("keydown", (e) => {
   if (e.repeat) return;
   const [what, by] = step;
   if (what === "theme") {
-    const themes = Object.keys(THEMES);
-    themeControl.setValue(stepped(themes, themeControl.getValue(), by));
+    const themes = availableThemes();
+    if (themes.length > 1) {
+      themeControl.setValue(stepped(themes, themeControl.getValue(), by));
+    }
   } else {
     const species = Object.keys(SPECIES);
     speciesControl.setValue(stepped(species, params.species, by));
@@ -958,7 +1008,10 @@ const seasonControl = leafSection
     if (twigsWanted() !== twigsBuilt) requestRebuild();
   });
 // The tree's age and the season, on screen too, at the right edge
-createTimeSliders({ age: shapeControls.treeAge, season: seasonControl });
+const timeSliders = createTimeSliders({
+  age: shapeControls.treeAge,
+  season: seasonControl,
+});
 // The clumps the cards are scattered over, one on each free branch tip:
 // clump size grows them all, and bigger clumps get more cards. Evenness
 // takes them all towards one size, keeping their total area, without

@@ -13,7 +13,10 @@ export const INK = '#2b2a30'
 // the export button and the material button, exporting and the material
 // code being for a desktop's tools anyway
 export const PHONE = '(pointer: coarse) and (max-width: 480px), (pointer: coarse) and (max-height: 500px)'
-const SIZE = 50 // a sticker's width, in pixels
+export const SIZE = 50 // a sticker's width, in pixels
+export const GAP = 20 // between two stickers, in pixels
+export const PHONE_SCALE = 0.68 // a sticker's width on a phone / its width on a desktop
+export const PHONE_GAP = 14 // between two stickers on a phone, in pixels
 
 let styled = false
 
@@ -24,12 +27,12 @@ function addStyle() {
   styled = true
   const style = document.createElement('style')
   style.textContent = `
-    .stickers { display: flex; gap: 20px; user-select: none }
+    .stickers { display: flex; gap: ${GAP}px; user-select: none }
     .stickers button { width: ${SIZE}px; height: ${SIZE}px; padding: 0; border: 3px solid ${LINE};
       border-radius: 50%; background: #fff; box-shadow: 4px 4px 0 var(--button-shadow); font-size: 22px; line-height: 1;
       color: ${LINE}; display: flex; align-items: center; justify-content: center;
       cursor: pointer; position: relative;
-      transition: box-shadow .08s, translate .08s, scale .25s cubic-bezier(.34, 1.8, .64, 1) }
+      transition: box-shadow .08s, translate .08s, scale .25s cubic-bezier(.34, 1.8, .64, 1), margin .3s, visibility .3s }
     .stickers button::before { content: ''; position: absolute; inset: -9px; border: 3px solid ${LINE}; border-radius: 50%;
       opacity: 0; scale: .7; pointer-events: none;
       transition: opacity .12s, scale .3s cubic-bezier(.34, 1.8, .64, 1) }
@@ -40,9 +43,10 @@ function addStyle() {
     .stickers button:hover { box-shadow: 6px 6px 0 var(--button-shadow); scale: 1.08 }
     .stickers button:active, .stickers button.picked { box-shadow: 1px 1px 0 var(--button-shadow); translate: 3px 3px }
     .stickers button.picked { scale: 1.12; cursor: default }
+    .stickers button.gone { scale: 0; visibility: hidden; pointer-events: none }
     @media (max-width: 480px), (max-height: 500px) {
-      .stickers { gap: 14px }
-      .stickers button { width: ${SIZE * 0.68}px; height: ${SIZE * 0.68}px; border-width: 2.5px; font-size: 16px;
+      .stickers { gap: ${PHONE_GAP}px }
+      .stickers button { width: ${SIZE * PHONE_SCALE}px; height: ${SIZE * PHONE_SCALE}px; border-width: 2.5px; font-size: 16px;
         box-shadow: 3px 3px 0 var(--button-shadow) }
       .stickers button::before { inset: -7px; border-width: 2.5px }
     }
@@ -53,8 +57,9 @@ function addStyle() {
 // A row of stickers, one per choice, each showing its content (text or an
 // SVG) and named for screen readers and on hover, with hint after the name
 // on hover, like the keys stepping through them. Picking one calls onPick;
-// the one picked can't be picked again. Returns the row, and show, marking
-// a choice as the one picked
+// the one picked can't be picked again. Returns the row, show, marking a
+// choice as the one picked, and hide, shrinking a choice away or bringing it
+// back (the row's own style closes the gap it leaves)
 export function createStickers({ className, choices, label, hint = '', onPick }) {
   addStyle()
   const row = document.createElement('div')
@@ -82,5 +87,11 @@ export function createStickers({ className, choices, label, hint = '', onPick })
   function show(name) {
     for (const [other, button] of Object.entries(buttons)) button.classList.toggle('picked', other === name)
   }
-  return { row, show }
+  function hide(name, hidden) {
+    const button = buttons[name]
+    button.classList.toggle('gone', hidden)
+    button.disabled = hidden
+    button.setAttribute('aria-hidden', hidden)
+  }
+  return { row, show, hide }
 }

@@ -111,6 +111,14 @@ export function barkMaterial() {
   return material
 }
 
+// A model's own colour, cel shaded in the bark's bands: its colour in the
+// light, darker in the mid band and darker again in the shadow. It keeps
+// its colour through every theme, only tinted by the light, as the wood is
+const PROP_BANDS = [0.25, 0.55, 1] // each band's colour / the model's own
+export function propMaterial(color) {
+  return celMaterial(BARK_STOPS.map((at, i) => [at, vec3(color.r, color.g, color.b).mul(PROP_BANDS[i])]))
+}
+
 // The floor draws nothing but the tree's shadow, in the shadow colour at its
 // darkness, so it always melts into the background
 export function groundMaterial() {

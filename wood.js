@@ -44,6 +44,10 @@ export const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5))
 export function createWood(params, random) {
   const positions = numbers(Float32Array)
   const normals = numbers(Float32Array)
+  // For a bark texture: per vertex, metres round its branch and metres along
+  // the wood from the ground, so the grain runs up every branch and the tile
+  // is one size everywhere
+  const uvs = numbers(Float32Array)
   const indices = numbers(Uint32Array)
   // For growing: per vertex, its ring's centre, its branch's root, and
   // how far along the wood from the ground it is, and how far the farthest
@@ -97,16 +101,25 @@ export function createWood(params, random) {
   // ground it starts. A branch that hangs swings in the wind from its start.
   // A thin one may take fewer sides than the rest. A trunk may flare at its
   // base, flare times wider again at the ground, easing back to its own
-  // radius a little way up. On a tree younger than mature it's as long and
-  // as thick as it has grown by then, or not there at all, but it always
-  // draws the same randoms, so the branches after it never move
+  // radius a little way up. It may bend on purpose too, as well as kink at
+  // random: each kink turns by its angle in bends, in radians, all about one
+  // axis square to the way it sets off, at bendAround round it, as splay
+  // takes it, so its bends stay in one plane: a zigzag, an S, or a curl.
+  // With tighten below 1, each kink is that much shorter than the one
+  // before, so a curl winds in to a spiral. With a tip, its tube thins
+  // further over the last tip.reach of it, easing in, down to tip.thin of
+  // the radius its taper alone gives it, its rounded end with it, for a
+  // twig ending in a fine point. Only its tube: the radii it hands back, and
+  // its sway, are its taper's. On a tree younger than mature
+  // it's as long and as thick as it has grown by then, or not there at all,
+  // but it always draws the same randoms, so the branches after it never move
   function branch(
     start,
     dir,
     fullLength,
     fullRadius,
     crookedness,
-    { parent = null, from = 0, segments, taper, upPull, hangs = false, sides = params.sides, flare = 0 },
+    { parent = null, from = 0, segments, taper, upPull, hangs = false, sides = params.sides, flare = 0, bends = null, bendAround = 0, tighten = 1, tip = null },
   ) {
     const length = grownLength(from, fullLength)
     const radius = fullRadius * THREE.MathUtils.lerp(YOUNG_THICKNESS, 1, length / fullLength)
@@ -119,12 +132,18 @@ export function createWood(params, random) {
     // along it, or it would swing as the tree ages. It's taken square to the
     // way it sets off, which is never near upright
     const square = hangs ? perpendicular(dir) : undefined
+    const bendAxis = bends ? perpendicular(dir).applyAxisAngle(dir, bendAround) : null
+    // The first kink's length, the rest adding up to the whole length. So
+    // near even, they're taken as even, as the sum's sharing out comes apart
+    const even = Math.abs(1 - tighten) < 1e-6
+    const first = even ? length / segments : (length * (1 - tighten)) / (1 - tighten ** segments)
     for (let i = 1; i <= segments; i++) {
       if (parent && i === 2) d.copy(dir)
       square?.addScaledVector(d, -square.dot(d)).normalize()
       kink(d, crookedness, random, square)
+      if (bendAxis) d.applyAxisAngle(bendAxis, bends[i - 1] ?? 0)
       d.addScaledVector(UP, upPull).normalize()
-      points.push(points[i - 1].clone().addScaledVector(d, length / segments))
+      points.push(points[i - 1].clone().addScaledVector(d, even ? length / segments : first * tighten ** (i - 1)))
       radii.push(radius * (1 - (1 - taper) * (i / segments)))
     }
     // Only measuring the tree, its farthest tip is all that's wanted of it
@@ -150,7 +169,7 @@ export function createWood(params, random) {
     thickest ??= fullRadius
     if (fullRadius >= thinnest * thickest) {
       const [k, r, f, p] = [points, radii, flexes, phases].map((list) => everyNth(list, ringStep))
-      tube(k, r, from, length, hangs ? start.y : undefined, sides, params.smoothness, capRings, flare, flareTo, f, p)
+      tube(k, r, from, length, hangs ? start.y : undefined, sides, params.smoothness, capRings, flare, flareTo, f, p, tip)
     } else farthestBirth = Math.max(farthestBirth, from + length)
     for (const point of points) top = Math.max(top, point.y)
     for (let i = 1; i < points.length; i++)
@@ -239,7 +258,7 @@ export function createWood(params, random) {
     return blend
   }
 
-  function tube(kinks, kinkRadii, from, length, hangFrom, sides, smoothness, capRings, flare, flareTo, kinkFlexes, kinkPhases) {
+  function tube(kinks, kinkRadii, from, length, hangFrom, sides, smoothness, capRings, flare, flareTo, kinkFlexes, kinkPhases, tip) {
     // Subdivide: smoothness rings per kink, along a curve through the kinks,
     // so bends come out round without the branch changing shape. A flared
     // base takes rings of its own up to flareTo, the share of the way along
@@ -260,7 +279,8 @@ export function createWood(params, random) {
       const at = share * (kinks.length - 1)
       const k = Math.min(Math.floor(at), kinks.length - 2)
       const widen = share < flareTo ? 1 + flare * (1 - share / flareTo) ** 2 : 1
-      radii.push(THREE.MathUtils.lerp(kinkRadii[k], kinkRadii[k + 1], at - k) * widen)
+      const thin = tip ? 1 - (1 - tip.thin) * THREE.MathUtils.clamp((share - 1) / tip.reach + 1, 0, 1) ** 2 : 1
+      radii.push(THREE.MathUtils.lerp(kinkRadii[k], kinkRadii[k + 1], at - k) * widen * thin)
       flexes.push(THREE.MathUtils.lerp(kinkFlexes[k], kinkFlexes[k + 1], at - k))
       phases.push(THREE.MathUtils.lerp(kinkPhases[k], kinkPhases[k + 1], at - k))
     }
@@ -271,13 +291,17 @@ export function createWood(params, random) {
     const binormal = new THREE.Vector3()
     const v = new THREE.Vector3()
     const center = new THREE.Vector3()
+    // Round the branch at its kinks' mean radius, flare and taper aside, so
+    // the bark's grain runs straight along it rather than winding round it
+    const around = (2 * Math.PI * kinkRadii.reduce((sum, r) => sum + r, 0)) / kinkRadii.length
 
-    // A ring of vertices; bend tips its normals forward, for the cap
-    function ring(radius, bend, birth, flex, phase) {
+    // A ring of vertices, its first again at its end, for the uvs' seam;
+    // bend tips its normals forward, for the cap, along the wood by along
+    function ring(radius, bend, birth, flex, phase, along = birth) {
       farthestBirth = Math.max(farthestBirth, birth)
       const lift = liftBelow(hangFrom, center.y)
       const [cosBend, sinBend] = [Math.cos(bend), Math.sin(bend)]
-      for (let j = 0; j < sides; j++) {
+      for (let j = 0; j <= sides; j++) {
         centers.push3(center.x, center.y, center.z)
         roots.push3(kinks[0].x, kinks[0].y, kinks[0].z)
         births.push(birth)
@@ -288,6 +312,7 @@ export function createWood(params, random) {
         positions.push3(center.x + v.x * radius, center.y + v.y * radius, center.z + v.z * radius)
         v.multiplyScalar(cosBend).addScaledVector(tangent, sinBend)
         normals.push3(v.x, v.y, v.z)
+        uvs.push2((j / sides) * around, along)
       }
     }
 
@@ -309,15 +334,15 @@ export function createWood(params, random) {
     for (let k = 1; k <= capRings; k++) {
       const bend = (k / capRings) * (Math.PI / 2)
       center.copy(end).addScaledVector(tangent, endRadius * Math.sin(bend))
-      ring(endRadius * Math.cos(bend), bend, from + length, flexes.at(-1), phases.at(-1))
+      ring(endRadius * Math.cos(bend), bend, from + length, flexes.at(-1), phases.at(-1), from + length + endRadius * bend)
     }
 
     for (let i = 0; i < points.length - 1 + capRings; i++) {
       for (let j = 0; j < sides; j++) {
-        const a = base + i * sides + j
-        const b = base + i * sides + ((j + 1) % sides)
-        indices.push3(a, b, a + sides)
-        indices.push3(b, b + sides, a + sides)
+        const a = base + i * (sides + 1) + j
+        const b = a + 1
+        indices.push3(a, b, a + sides + 1)
+        indices.push3(b, b + sides + 1, a + sides + 1)
       }
     }
   }
@@ -393,6 +418,7 @@ export function createWood(params, random) {
     const geometry = new THREE.BufferGeometry()
     geometry.setAttribute('position', new THREE.BufferAttribute(positions.copy(), 3))
     geometry.setAttribute('normal', new THREE.BufferAttribute(normals.copy(), 3))
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uvs.copy(), 2))
     geometry.setIndex(new THREE.BufferAttribute(indices.copy(), 1))
     // For growing: distances along the wood, 0 at the ground to 1 at the
     // farthest tip

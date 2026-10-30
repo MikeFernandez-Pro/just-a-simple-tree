@@ -103,6 +103,7 @@ export async function exportGlb({ tree, levels, impostor, barkColors, species, s
       const geometry = new THREE.BufferGeometry()
       geometry.setAttribute('position', wood.attributes.position)
       geometry.setAttribute('normal', wood.attributes.normal)
+      geometry.setAttribute('uv', wood.attributes.uv)
       geometry.setIndex(wood.index)
       const mesh = new THREE.Mesh(geometry, bark)
       mesh.name = `wood${suffix}`

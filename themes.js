@@ -1,4 +1,4 @@
-import { createStickers } from './stickers.js'
+import { createStickers, GAP, PHONE_GAP, PHONE_SCALE, SIZE } from './stickers.js'
 
 // Colour themes, each a whole scene: three leaf bands from shadow to light,
 // the three they turn to as they age, three wood bands, the grass from root
@@ -59,13 +59,17 @@ export const THEMES = {
 export const START_THEME = 'blossom'
 
 // The buttons along the top, centred: under the Inspector's bar when the
-// screen is too narrow to share the top with it
+// screen is too narrow to share the top with it. A theme away while a
+// species of another theme is picked shrinks to nothing and the row closes
+// over it
 export function createThemeButtons({ onPick }) {
   const style = document.createElement('style')
   style.textContent = `
     .themes { position: fixed; left: 50%; top: 16px; transform: translateX(-50%) }
+    .themes button.gone { margin-left: -${SIZE + GAP}px }
     @media (max-width: 480px), (max-height: 500px) {
       .themes { top: 12px }
+      .themes button.gone { margin-left: -${SIZE * PHONE_SCALE + PHONE_GAP}px }
     }
     @media (max-width: 480px) {
       .themes { top: 64px }
@@ -74,6 +78,6 @@ export function createThemeButtons({ onPick }) {
   document.head.appendChild(style)
 
   const choices = Object.fromEntries(Object.entries(THEMES).map(([name, { emoji }]) => [name, emoji]))
-  const { show } = createStickers({ className: 'themes', choices, label: (name) => `${name} theme`, hint: '← →', onPick })
-  return { show }
+  const { show, hide } = createStickers({ className: 'themes', choices, label: (name) => `${name} theme`, hint: '← →', onPick })
+  return { show, hide }
 }
